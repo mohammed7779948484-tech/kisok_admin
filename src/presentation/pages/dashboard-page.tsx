@@ -37,35 +37,59 @@ const pollingOptions = {
 export function DashboardPage() {
   const products = useList<Product>({
     resource: "products",
-    pagination: { mode: "off" },
+    pagination: { currentPage: 1, pageSize: 1 },
+    meta: { select: "id" },
     filters: [{ field: "is_active", operator: "eq", value: true }],
   });
   const flavors = useList<Flavor>({
     resource: "flavors",
-    pagination: { mode: "off" },
+    pagination: { currentPage: 1, pageSize: 1 },
+    meta: { select: "id" },
     filters: [{ field: "is_active", operator: "eq", value: true }],
   });
   const inventory = useList<InventoryRow>({
     resource: "inventory",
     pagination: { mode: "off" },
-    meta: { select: "*,flavors(*,products(id,name))" },
+    meta: {
+      select: "flavor_id,current_quantity,updated_at,flavors(id,name,product_id,products(id,name))",
+    },
     queryOptions: pollingOptions,
   });
   const settings = useList<StoreSettings>({
     resource: "store_settings",
     pagination: { mode: "off" },
+    meta: { select: "id,global_low_stock_threshold" },
   });
   const orders = useList<Order>({
     resource: "orders",
     pagination: { currentPage: 1, pageSize: 8 },
     sorters: [{ field: "created_at", order: "desc" }],
+    meta: {
+      select: "id,display_number,status,created_at,updated_at,completed_at,cancelled_at",
+    },
+    queryOptions: pollingOptions,
+  });
+  const newOrders = useList<Order>({
+    resource: "orders",
+    pagination: { currentPage: 1, pageSize: 1 },
+    meta: { select: "id" },
+    filters: [{ field: "status", operator: "eq", value: "new" }],
+    queryOptions: pollingOptions,
+  });
+  const readyOrders = useList<Order>({
+    resource: "orders",
+    pagination: { currentPage: 1, pageSize: 1 },
+    meta: { select: "id" },
+    filters: [{ field: "status", operator: "eq", value: "ready" }],
     queryOptions: pollingOptions,
   });
   const adjustments = useList<InventoryAdjustment>({
     resource: "inventory_adjustments",
     pagination: { currentPage: 1, pageSize: 6 },
     sorters: [{ field: "created_at", order: "desc" }],
-    meta: { select: "*,flavors(id,name,products(id,name))" },
+    meta: {
+      select: "id,flavor_id,quantity_change,quantity_before,quantity_after,adjustment_type,reason,created_at,flavors(id,name,products(id,name))",
+    },
     queryOptions: pollingOptions,
   });
 
@@ -75,6 +99,8 @@ export function DashboardPage() {
     inventory.query,
     settings.query,
     orders.query,
+    newOrders.query,
+    readyOrders.query,
     adjustments.query,
   ];
   const error = queries.find((query) => query.error)?.error as Error | undefined;
@@ -83,13 +109,8 @@ export function DashboardPage() {
   const lowStock = inventory.result.data.filter(
     (row) => row.current_quantity <= threshold,
   );
-  const statusCounts = orders.result.data.reduce<Record<string, number>>(
-    (counts, order) => {
-      counts[order.status] = (counts[order.status] ?? 0) + 1;
-      return counts;
-    },
-    {},
-  );
+  const newOrderCount = newOrders.result.total ?? newOrders.result.data.length;
+  const readyOrderCount = readyOrders.result.total ?? readyOrders.result.data.length;
 
   return (
     <>
@@ -98,7 +119,7 @@ export function DashboardPage() {
         title="Dashboard"
       />
       {error ? <ErrorState message={error.message} /> : null}
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <MetricCard
           description="Available in the customer catalog"
           icon={PackageCheckIcon}
@@ -118,7 +139,7 @@ export function DashboardPage() {
           value={lowStock.length}
         />
         <MetricCard
-          description={`${statusCounts.new ?? 0} new · ${statusCounts.ready ?? 0} ready`}
+          description={`${newOrderCount} new · ${readyOrderCount} ready`}
           icon={ShoppingBagIcon}
           title="Recent orders"
           value={orders.result.total ?? orders.result.data.length}
@@ -243,15 +264,15 @@ function MetricCard({
 }) {
   return (
     <Card>
-      <CardHeader className="flex-row items-center justify-between">
+      <CardHeader className="flex-row items-center justify-between p-4">
         <div className="flex flex-col gap-1">
           <CardDescription>{title}</CardDescription>
           <CardTitle className="text-3xl tabular-nums">{value}</CardTitle>
         </div>
         <Icon className="text-muted-foreground" />
       </CardHeader>
-      <CardContent>
-        <p className="text-xs text-muted-foreground">{description}</p>
+      <CardContent className="px-4 pb-4">
+        <p className="line-clamp-2 text-xs text-muted-foreground">{description}</p>
       </CardContent>
     </Card>
   );

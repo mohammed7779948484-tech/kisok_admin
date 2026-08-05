@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { canAccessAdmin } from "@/application/policies/admin-access";
+import {
+  hasFlavorChanges,
+  hasProductChanges,
+} from "@/application/products/product-change-set";
 import { parsePublicEnv } from "@/shared/env";
-import { toAppError } from "@/shared/errors";
+import { AppError, toAppError } from "@/shared/errors";
 
 const rpc = vi.fn();
 
@@ -63,6 +67,90 @@ describe("critical application boundaries", () => {
     expect(error.message).toContain("Deactivate");
   });
 
+  it("keeps the administrator session after an authorization failure", async () => {
+    const { authProvider } = await import("@/infrastructure/supabase/auth-provider");
+    await expect(authProvider.onError?.(new AppError("Forbidden", 403))).resolves.toEqual({
+      error: expect.objectContaining({ statusCode: 403 }),
+    });
+    await expect(authProvider.onError?.(new AppError("Expired", 401))).resolves.toEqual({
+      logout: true,
+      redirectTo: "/login",
+      error: expect.objectContaining({ statusCode: 401 }),
+    });
+  });
+
+  it("skips unchanged product and flavor writes", () => {
+    const product = {
+      id: "product-id",
+      name: "Coffee",
+      brand_id: "brand-id",
+      cover_public_id: null,
+      cover_secure_url: null,
+      short_description: null,
+      search_keywords: [],
+      display_order: 1,
+      is_active: true,
+      created_at: "",
+      updated_at: "",
+      product_categories: [{ category_id: "category-id" }],
+    };
+    const flavor = {
+      id: "flavor-id",
+      product_id: product.id,
+      name: "Vanilla",
+      main_image_public_id: "flavors/vanilla",
+      main_image_secure_url: "https://example.com/vanilla.png",
+      search_keywords: [],
+      display_order: 1,
+      is_featured: false,
+      is_active: true,
+      created_at: "",
+      updated_at: "",
+    };
+
+    expect(
+      hasProductChanges(
+        {
+          name: "Coffee",
+          brand_id: "brand-id",
+          cover_public_id: "",
+          cover_secure_url: "",
+          short_description: "",
+          display_order: 1,
+          is_active: true,
+          category_ids: ["category-id"],
+        },
+        product,
+      ),
+    ).toBe(false);
+    expect(
+      hasFlavorChanges(
+        {
+          name: "Vanilla",
+          main_image_public_id: "flavors/vanilla",
+          main_image_secure_url: "https://example.com/vanilla.png",
+          display_order: 1,
+          is_featured: false,
+          is_active: true,
+        },
+        flavor,
+      ),
+    ).toBe(false);
+    expect(
+      hasFlavorChanges(
+        {
+          name: "Vanilla",
+          main_image_public_id: "flavors/vanilla",
+          main_image_secure_url: "https://example.com/vanilla.png",
+          display_order: 2,
+          is_featured: false,
+          is_active: true,
+        },
+        flavor,
+      ),
+    ).toBe(true);
+  });
+
   it("preserves the inventory RPC contract", async () => {
     rpc.mockResolvedValueOnce({ data: { quantity_after: 8 }, error: null });
     const { rpcGateway } = await import("@/infrastructure/supabase/rpc-gateway");
@@ -77,6 +165,30 @@ describe("critical application boundaries", () => {
       type: "manual_increase",
       delta: 3,
       reason: "Delivery",
+    });
+  });
+
+  it("preserves the atomic product and category RPC contract", async () => {
+    rpc.mockResolvedValueOnce({
+      data: [{ product_id: "product-id", created: true }],
+      error: null,
+    });
+    const { rpcGateway } = await import("@/infrastructure/supabase/rpc-gateway");
+    await rpcGateway.saveProduct(
+      {
+        name: "Coffee",
+        brand_id: "brand-id",
+        search_keywords: [],
+      },
+      ["category-id"],
+    );
+    expect(rpc).toHaveBeenCalledWith("save_product_with_categories", {
+      product_payload: {
+        name: "Coffee",
+        brand_id: "brand-id",
+        search_keywords: [],
+      },
+      category_ids: ["category-id"],
     });
   });
 });

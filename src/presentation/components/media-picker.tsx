@@ -13,6 +13,7 @@ import { CloudinaryImage } from "@/presentation/components/cloudinary-image";
 import { CloudinaryUploadButton } from "@/presentation/components/cloudinary-upload-button";
 import { addMediaAsset, useMediaAssets } from "@/presentation/hooks/use-media-assets";
 import type { CloudinaryAsset } from "@/domain/media";
+import { toAppError } from "@/shared/errors";
 
 export function MediaPicker({
   open,
@@ -27,7 +28,7 @@ export function MediaPicker({
   selectedPublicId?: string;
   multiple?: boolean;
 }) {
-  const { assets, isLoading } = useMediaAssets();
+  const { assets, error, isLoading } = useMediaAssets();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
 
@@ -78,7 +79,11 @@ export function MediaPicker({
           />
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto rounded-md border p-3">
-          {isLoading ? (
+          {error ? (
+            <div className="flex h-full items-center justify-center text-sm text-destructive">
+              {toAppError(error).message}
+            </div>
+          ) : isLoading ? (
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
               Loading media...
             </div>
@@ -140,4 +145,3 @@ export function MediaPicker({
     </Dialog>
   );
 }
-

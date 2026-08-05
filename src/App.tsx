@@ -127,7 +127,11 @@ export default function App() {
           </Routes>
           </Suspense>
           <UnsavedChangesNotifier />
-          <DocumentTitleHandler handler={({ resource }) => `${resource?.meta?.label ?? "Dashboard"} | Kiosk Admin`} />
+          <DocumentTitleHandler
+            handler={({ resource }) =>
+              `${String(resource?.meta?.label ?? "").trim() || "Dashboard"} | Kiosk Admin`
+            }
+          />
           <Toaster richColors />
         </Refine>
       </TooltipProvider>

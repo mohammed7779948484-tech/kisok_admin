@@ -1,5 +1,6 @@
 import { useMemo, useSyncExternalStore } from "react";
 import { useList } from "@refinedev/core";
+import { useQuery } from "@tanstack/react-query";
 import type { Brand, Category, Flavor, Product, StoreSettings } from "@/domain/entities";
 import type { CloudinaryAsset } from "@/domain/media";
 import {
@@ -7,6 +8,7 @@ import {
   rememberUploadedAsset,
   forgetUploadedAsset,
 } from "@/infrastructure/cloudinary/local-media-library";
+import { listCloudinaryAssets } from "@/infrastructure/cloudinary/media-gateway";
 
 const eventName = "kiosk-admin-media-assets";
 
@@ -46,22 +48,35 @@ export function removeMediaAsset(publicId: string) {
 
 export function useMediaAssets() {
   const uploadedSnapshot = useSyncExternalStore(subscribe, snapshot, () => "[]");
-  const brands = useList<Brand>({ resource: "brands", pagination: { mode: "off" } });
+  const cloudinary = useQuery({
+    queryKey: ["cloudinary", "assets"],
+    queryFn: listCloudinaryAssets,
+    staleTime: 30_000,
+  });
+  const brands = useList<Brand>({
+    resource: "brands",
+    pagination: { mode: "off" },
+    meta: { select: "id,name,image_public_id,image_secure_url" },
+  });
   const categories = useList<Category>({
     resource: "categories",
     pagination: { mode: "off" },
+    meta: { select: "id,name,image_public_id,image_secure_url" },
   });
   const products = useList<Product>({
     resource: "products",
     pagination: { mode: "off" },
+    meta: { select: "id,name,cover_public_id,cover_secure_url" },
   });
   const flavors = useList<Flavor>({
     resource: "flavors",
     pagination: { mode: "off" },
+    meta: { select: "id,name,main_image_public_id,main_image_secure_url" },
   });
   const settings = useList<StoreSettings>({
     resource: "store_settings",
     pagination: { mode: "off" },
+    meta: { select: "id,store_name,logo_public_id,logo_secure_url" },
   });
 
   const uploadedAssets = useMemo(
@@ -70,7 +85,10 @@ export function useMediaAssets() {
   );
 
   const assets = useMemo(() => {
-    const next: CloudinaryAsset[] = [...uploadedAssets];
+    const next: CloudinaryAsset[] = [...(cloudinary.data ?? [])];
+    for (const asset of uploadedAssets) {
+      if (!next.some((item) => item.publicId === asset.publicId)) next.push(asset);
+    }
     for (const brand of brands.result.data) {
       pushAsset(next, brand.image_public_id, brand.image_secure_url, "catalog");
     }
@@ -90,20 +108,25 @@ export function useMediaAssets() {
   }, [
     brands.result.data,
     categories.result.data,
+    cloudinary.data,
     flavors.result.data,
     products.result.data,
     settings.result.data,
     uploadedAssets,
   ]);
+  const queries = [
+    cloudinary,
+    brands.query,
+    categories.query,
+    products.query,
+    flavors.query,
+    settings.query,
+  ];
+  const error = queries.find((query) => query.error)?.error;
 
   return {
     assets,
-    isLoading:
-      brands.query.isLoading ||
-      categories.query.isLoading ||
-      products.query.isLoading ||
-      flavors.query.isLoading ||
-      settings.query.isLoading,
+    error,
+    isLoading: queries.some((query) => query.isLoading),
   };
 }
-

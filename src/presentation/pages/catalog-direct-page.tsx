@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
   useCreate,
-  useDelete,
   useInvalidate,
   useList,
   useUpdate,
@@ -113,7 +112,6 @@ export function CatalogDirectPage({
   });
   const create = useCreate<CatalogRow, ReturnType<typeof toAppError>, Partial<CatalogRow>>();
   const update = useUpdate<CatalogRow, ReturnType<typeof toAppError>, Partial<CatalogRow>>();
-  const remove = useDelete<CatalogRow>();
   const current = query.result.data.find((row) => row.id === params.id);
   const [form, setForm] = useState<FormValue>(emptyForm);
   const [deleteTarget, setDeleteTarget] = useState<CatalogRow | null>(null);
@@ -201,6 +199,8 @@ export function CatalogDirectPage({
                         resource: kind,
                         id: row.original.id,
                         values: { is_active: !row.original.is_active },
+                        successNotification: false,
+                        errorNotification: false,
                       },
                       {
                         onSuccess: () =>
@@ -219,7 +219,7 @@ export function CatalogDirectPage({
                   onClick={() => setDeleteTarget(row.original)}
                 >
                   <Trash2Icon />
-                  Delete
+                  Deactivate
                 </DropdownMenuItem>
               </DropdownMenuGroup>
             </DropdownMenuContent>
@@ -257,9 +257,20 @@ export function CatalogDirectPage({
         await rpcGateway.createChildCategory(form.parent_id, values);
         await invalidate({ resource: kind, invalidates: ["list"] });
       } else if (mode === "create") {
-        await create.mutateAsync({ resource: kind, values });
+        await create.mutateAsync({
+          resource: kind,
+          values,
+          successNotification: false,
+          errorNotification: false,
+        });
       } else if (current) {
-        await update.mutateAsync({ resource: kind, id: current.id, values });
+        await update.mutateAsync({
+          resource: kind,
+          id: current.id,
+          values,
+          successNotification: false,
+          errorNotification: false,
+        });
       }
       toast.success(`${isCategory ? "Category" : "Brand"} saved.`);
       closeSheet();
@@ -438,28 +449,39 @@ export function CatalogDirectPage({
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete {deleteTarget?.name}?</AlertDialogTitle>
+            <AlertDialogTitle>Deactivate {deleteTarget?.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              This succeeds only when no products or child records depend on it. Deactivation is
-              safer for historical catalog data.
+              The record is hidden from the active catalog while dependent products and historical
+              data remain intact.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
+              disabled={update.mutation.isPending}
               variant="destructive"
               onClick={() => {
                 if (!deleteTarget) return;
-                remove.mutate(
-                  { resource: kind, id: deleteTarget.id },
+                update.mutate(
                   {
-                    onSuccess: () => toast.success("Record deleted."),
+                    resource: kind,
+                    id: deleteTarget.id,
+                    values: { is_active: false },
+                    successNotification: false,
+                    errorNotification: false,
+                  },
+                  {
+                    onSuccess: () => {
+                      setDeleteTarget(null);
+                      void invalidate({ resource: kind, invalidates: ["list", "detail"] });
+                      toast.success("Record deactivated.");
+                    },
                     onError: (error) => toast.error(toAppError(error).message),
                   },
                 );
               }}
             >
-              Delete
+              Deactivate
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

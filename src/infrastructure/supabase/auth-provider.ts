@@ -54,7 +54,7 @@ export const authProvider: AuthProvider = {
   },
   onError: async (error: unknown) => {
     const mapped = toAppError(error);
-    if (mapped.statusCode === 401 || mapped.statusCode === 403) {
+    if (mapped.statusCode === 401) {
       return { logout: true, redirectTo: "/login", error: mapped };
     }
     return { error: mapped };

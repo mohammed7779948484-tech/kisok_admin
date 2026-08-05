@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useInvalidate, useList } from "@refinedev/core";
+import { useInvalidate, useList, useOne } from "@refinedev/core";
 import type { ColumnDef } from "@tanstack/react-table";
 import { CheckCircle2Icon, EyeIcon, XCircleIcon } from "lucide-react";
 import { useNavigate, useParams } from "react-router";
@@ -45,9 +45,11 @@ export function OrdersPage({ show = false }: { show?: boolean }) {
   const invalidate = useInvalidate();
   const orders = useList<Order>({
     resource: "orders",
-    pagination: { currentPage: 1, pageSize: 200 },
+    pagination: { currentPage: 1, pageSize: 50 },
     sorters: [{ field: "created_at", order: "desc" }],
-    meta: { select: "*,order_items(*)" },
+    meta: {
+      select: "id,display_number,status,created_at,updated_at,completed_at,completed_by,cancelled_at,cancelled_by,cancellation_reason,assigned_preparation_id,order_items(quantity)",
+    },
     queryOptions: {
       refetchInterval: () =>
         typeof document !== "undefined" && document.visibilityState === "visible"
@@ -55,7 +57,15 @@ export function OrdersPage({ show = false }: { show?: boolean }) {
           : false,
     },
   });
-  const current = orders.result.data.find((order) => order.id === params.id);
+  const orderDetail = useOne<Order>({
+    resource: "orders",
+    id: params.id,
+    meta: {
+      select: "id,display_number,status,created_at,updated_at,completed_at,completed_by,cancelled_at,cancelled_by,cancellation_reason,assigned_preparation_id,order_items(id,order_id,product_id,flavor_id,product_name,flavor_name,brand_name,image_public_id,image_secure_url,quantity)",
+    },
+    queryOptions: { enabled: show && Boolean(params.id) },
+  });
+  const current = show ? orderDetail.result : undefined;
   const [completeOpen, setCompleteOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [reason, setReason] = useState("");
@@ -165,6 +175,10 @@ export function OrdersPage({ show = false }: { show?: boolean }) {
       {orders.query.error ? (
         <ErrorState message={toAppError(orders.query.error).message} />
       ) : null}
+      {show && orderDetail.query.isLoading ? <TableSkeleton /> : null}
+      {show && orderDetail.query.error ? (
+        <ErrorState message={toAppError(orderDetail.query.error).message} />
+      ) : null}
       {!orders.query.isLoading ? (
         <DataTable
           columns={columns}
@@ -176,7 +190,7 @@ export function OrdersPage({ show = false }: { show?: boolean }) {
         onOpenChange={(open) => {
           if (!open) navigate("/orders");
         }}
-        open={show && Boolean(current)}
+        open={show && Boolean(current) && !orderDetail.query.isLoading}
       >
         <SheetContent className="overflow-y-auto sm:max-w-xl">
           <SheetHeader>

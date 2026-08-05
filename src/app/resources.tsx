@@ -35,6 +35,10 @@ export const resources = [
     meta: { label: "Products", icon: <PackageIcon /> },
   },
   {
+    name: "flavors",
+    meta: { label: "Flavors", hide: true },
+  },
+  {
     name: "media",
     list: "/media",
     meta: { label: "Media", icon: <ImagesIcon /> },
@@ -45,6 +49,10 @@ export const resources = [
     meta: { label: "Inventory", icon: <BoxesIcon /> },
   },
   {
+    name: "inventory_adjustments",
+    meta: { label: "Inventory adjustments", hide: true },
+  },
+  {
     name: "orders",
     list: "/orders",
     show: "/orders/show/:id",
@@ -53,8 +61,6 @@ export const resources = [
   {
     name: "users",
     list: "/users",
-    create: "/users/create",
-    edit: "/users/edit/:id",
     meta: { label: "Users", icon: <UsersIcon /> },
   },
   {

@@ -56,17 +56,22 @@ export function InventoryPage() {
     resource: "inventory",
     pagination: { mode: "off" },
     sorters: [{ field: "updated_at", order: "desc" }],
-    meta: { select: "*,flavors(*,products(id,name))" },
+    meta: {
+      select: "flavor_id,current_quantity,created_at,updated_at,flavors(id,product_id,name,main_image_public_id,main_image_secure_url,display_order,is_featured,is_active,created_at,updated_at,products(id,name))",
+    },
   });
   const adjustments = useList<InventoryAdjustment>({
     resource: "inventory_adjustments",
     pagination: { currentPage: 1, pageSize: 100 },
     sorters: [{ field: "created_at", order: "desc" }],
-    meta: { select: "*,flavors(id,name,products(id,name))" },
+    meta: {
+      select: "id,flavor_id,quantity_change,quantity_before,quantity_after,adjustment_type,reason,created_by,created_at,order_id,flavors(id,name,products(id,name))",
+    },
   });
   const settings = useList<StoreSettings>({
     resource: "store_settings",
     pagination: { mode: "off" },
+    meta: { select: "id,global_low_stock_threshold" },
   });
   const [target, setTarget] = useState<InventoryRow | null>(null);
   const [tab, setTab] = useState("adjust");

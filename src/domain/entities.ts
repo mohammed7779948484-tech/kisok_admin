@@ -129,6 +129,7 @@ export interface Order {
 }
 
 export interface StoreSettings {
+  /** Refine normalizes the singleton boolean key to a string BaseKey. */
   id: string;
   store_name: string;
   logo_public_id: string | null;

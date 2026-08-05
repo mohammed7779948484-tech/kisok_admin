@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import { useGetIdentity } from "@refinedev/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -65,9 +65,18 @@ const roles: AppRole[] = ["admin", "preparation", "customer"];
 export function UsersPage() {
   const queryClient = useQueryClient();
   const { data: identity } = useGetIdentity<AdminIdentity>();
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const deferredSearch = useDeferredValue(search);
+  const perPage = 50;
   const users = useQuery({
-    queryKey: ["admin-users"],
-    queryFn: () => adminUsersGateway.list({ page: 1, perPage: 200 }),
+    queryKey: ["admin-users", page, deferredSearch],
+    queryFn: () =>
+      adminUsersGateway.list({
+        page,
+        perPage,
+        search: deferredSearch.trim() || undefined,
+      }),
   });
   const [dialogMode, setDialogMode] = useState<DialogMode>(null);
   const [selected, setSelected] = useState<AdminUser | null>(null);
@@ -199,6 +208,7 @@ export function UsersPage() {
                   Set password
                 </DropdownMenuItem>
                 <DropdownMenuItem
+                  disabled={row.original.id === identity?.id && row.original.isActive}
                   onClick={() => {
                     closeDialogs();
                     setSelected(row.original);
@@ -217,7 +227,7 @@ export function UsersPage() {
         ),
       },
     ],
-    [],
+    [identity?.id],
   );
 
   const submitDialog = () => {
@@ -256,6 +266,17 @@ export function UsersPage() {
         <DataTable
           columns={columns}
           data={users.data.users}
+          remote={{
+            page,
+            pageSize: perPage,
+            total: users.data.total,
+            search,
+            onPageChange: setPage,
+            onSearchChange: (value) => {
+              setSearch(value);
+              setPage(1);
+            },
+          }}
           searchPlaceholder="Search name, email, or role..."
         />
       ) : null}
@@ -310,7 +331,11 @@ export function UsersPage() {
                     value={role}
                   >
                     {roles.map((value) => (
-                      <NativeSelectOption key={value} value={value}>
+                      <NativeSelectOption
+                        disabled={selected?.id === identity?.id && value !== "admin"}
+                        key={value}
+                        value={value}
+                      >
                         {value[0].toUpperCase() + value.slice(1)}
                       </NativeSelectOption>
                     ))}

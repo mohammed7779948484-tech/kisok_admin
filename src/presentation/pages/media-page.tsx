@@ -1,4 +1,6 @@
-import { CopyIcon, Trash2Icon } from "lucide-react";
+import { useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { CopyIcon, Trash2Icon, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -9,11 +11,33 @@ import {
   removeMediaAsset,
   useMediaAssets,
 } from "@/presentation/hooks/use-media-assets";
+import { deleteCloudinaryAsset } from "@/infrastructure/cloudinary/media-gateway";
 import { PageHeader } from "@/presentation/components/page-header";
-import { TableSkeleton } from "@/presentation/components/states";
+import { ErrorState, TableSkeleton } from "@/presentation/components/states";
+import { toAppError } from "@/shared/errors";
 
 export function MediaPage() {
-  const { assets, isLoading } = useMediaAssets();
+  const { assets, error, isLoading } = useMediaAssets();
+  const queryClient = useQueryClient();
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const handleDelete = async (publicId: string, source: string) => {
+    if (!confirm(`Are you sure you want to delete "${publicId}"?`)) return;
+    setDeletingId(publicId);
+    try {
+      if (source === "uploaded") {
+        removeMediaAsset(publicId);
+      } else {
+        await deleteCloudinaryAsset(publicId);
+        await queryClient.invalidateQueries({ queryKey: ["cloudinary", "assets"] });
+      }
+      toast.success("Image deleted successfully.");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete image.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   return (
     <>
@@ -23,6 +47,7 @@ export function MediaPage() {
         title="Media"
       />
       {isLoading ? <TableSkeleton /> : null}
+      {error ? <ErrorState message={toAppError(error).message} /> : null}
       {!isLoading && !assets.length ? (
         <div className="rounded-md border border-dashed p-10 text-center text-sm text-muted-foreground">
           No media yet. Upload the first image to start building the library.
@@ -37,7 +62,7 @@ export function MediaPage() {
               publicId={asset.publicId}
               secureUrl={asset.secureUrl}
             />
-            <div className="space-y-2 p-3">
+            <div className="flex flex-col gap-2 p-3">
               <div className="flex items-center justify-between gap-2">
                 <Badge variant={asset.source === "uploaded" ? "default" : "secondary"}>
                   {asset.source}
@@ -55,17 +80,20 @@ export function MediaPage() {
                   >
                     <CopyIcon />
                   </Button>
-                  {asset.source === "uploaded" ? (
-                    <Button
-                      aria-label="Remove from local media library"
-                      onClick={() => removeMediaAsset(asset.publicId)}
-                      size="icon"
-                      type="button"
-                      variant="ghost"
-                    >
-                      <Trash2Icon />
-                    </Button>
-                  ) : null}
+                  <Button
+                    aria-label="Delete image"
+                    disabled={deletingId === asset.publicId}
+                    onClick={() => void handleDelete(asset.publicId, asset.source)}
+                    size="icon"
+                    type="button"
+                    variant="ghost"
+                  >
+                    {deletingId === asset.publicId ? (
+                      <Loader2Icon className="animate-spin" />
+                    ) : (
+                      <Trash2Icon className="text-destructive" />
+                    )}
+                  </Button>
                 </div>
               </div>
               <p className="truncate text-xs text-muted-foreground">{asset.publicId}</p>
@@ -76,4 +104,3 @@ export function MediaPage() {
     </>
   );
 }
-

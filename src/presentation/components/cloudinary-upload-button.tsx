@@ -54,11 +54,18 @@ export function CloudinaryUploadButton({
   onUploaded: (asset: CloudinaryAsset) => void;
 }) {
   const widgetRef = useRef<UploadWidget | null>(null);
+  const onUploadedRef = useRef(onUploaded);
   const [ready, setReady] = useState(false);
   const [timedOut, setTimedOut] = useState(false);
 
   useEffect(() => {
+    onUploadedRef.current = onUploaded;
+  }, [onUploaded]);
+
+  useEffect(() => {
     if (!cloudinaryUploadPreset) return;
+    setReady(false);
+    setTimedOut(false);
 
     const intervalId = window.setInterval(() => {
       if (typeof window.cloudinary?.createUploadWidget !== "function") return;
@@ -80,7 +87,7 @@ export function CloudinaryUploadButton({
 
           const event = result as { event?: string; info?: CloudinaryUploadInfo };
           if (event.event === "success" && event.info?.public_id && event.info.secure_url) {
-            onUploaded(toAsset(event.info));
+            onUploadedRef.current(toAsset(event.info));
             toast.success("Image uploaded.");
           }
         },
@@ -101,7 +108,7 @@ export function CloudinaryUploadButton({
       widgetRef.current?.destroy?.();
       widgetRef.current = null;
     };
-  }, [folder, onUploaded]);
+  }, [folder]);
 
   const disabled = !cloudinaryUploadPreset || timedOut || !ready;
 
@@ -121,4 +128,3 @@ export function CloudinaryUploadButton({
     </Button>
   );
 }
-

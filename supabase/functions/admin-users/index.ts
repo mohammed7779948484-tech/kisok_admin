@@ -157,8 +157,34 @@ async function getProfile(admin: SupabaseClient, userId: string) {
   return data as Profile;
 }
 
+async function assertCanRemoveAdminAccess(
+  admin: SupabaseClient,
+  callerId: string,
+  userId: string,
+) {
+  if (userId === callerId) {
+    throw new RequestError(
+      "You cannot remove your own active administrator access.",
+      409,
+    );
+  }
+  const { count, error } = await admin
+    .from("profiles")
+    .select("id", { count: "exact", head: true })
+    .eq("role", "admin")
+    .eq("is_active", true);
+  if (error) throw error;
+  if ((count ?? 0) <= 1) {
+    throw new RequestError(
+      "The last active administrator cannot be demoted or deactivated.",
+      409,
+    );
+  }
+}
+
 async function executeAction(
   admin: SupabaseClient,
+  callerId: string,
   body: Record<string, unknown>,
 ) {
   const action = requiredString(body, "action");
@@ -168,12 +194,21 @@ async function executeAction(
     const perPage = Math.min(200, Math.max(1, Number(body.perPage) || 50));
     const search =
       typeof body.search === "string" ? body.search.trim().toLowerCase() : "";
-    const { data, error } = await admin.auth.admin.listUsers({
-      page,
-      perPage,
-    });
-    if (error) throw error;
-    const ids = data.users.map((user) => user.id);
+    const authUsers: AuthUser[] = [];
+    let authTotal = 0;
+    let authPage = search ? 1 : page;
+    do {
+      const { data, error } = await admin.auth.admin.listUsers({
+        page: authPage,
+        perPage: search ? 200 : perPage,
+      });
+      if (error) throw error;
+      authUsers.push(...data.users);
+      authTotal = data.total;
+      authPage += 1;
+    } while (search && authUsers.length < authTotal);
+
+    const ids = authUsers.map((user) => user.id);
     const { data: profiles, error: profileError } = ids.length
       ? await admin
           .from("profiles")
@@ -184,7 +219,7 @@ async function executeAction(
     const profilesById = new Map(
       (profiles as Profile[]).map((profile) => [profile.id, profile]),
     );
-    const users = data.users
+    const matchedUsers = authUsers
       .map((user) => toAdminUser(user, profilesById.get(user.id)))
       .filter((user) =>
         search
@@ -193,7 +228,15 @@ async function executeAction(
               .includes(search)
           : true,
       );
-    return { users, page, perPage, total: search ? users.length : data.total };
+    const users = search
+      ? matchedUsers.slice((page - 1) * perPage, page * perPage)
+      : matchedUsers;
+    return {
+      users,
+      page,
+      perPage,
+      total: search ? matchedUsers.length : authTotal,
+    };
   }
 
   if (action === "create") {
@@ -227,6 +270,14 @@ async function executeAction(
   if (action === "update") {
     const displayName = requiredString(body, "displayName");
     const role = requiredRole(body);
+    const existingProfile = await getProfile(admin, userId);
+    if (
+      existingProfile.role === "admin" &&
+      existingProfile.is_active &&
+      role !== "admin"
+    ) {
+      await assertCanRemoveAdminAccess(admin, callerId, userId);
+    }
     const { error } = await admin
       .from("profiles")
       .update({ display_name: displayName, role })
@@ -250,6 +301,10 @@ async function executeAction(
   }
 
   if (action === "deactivate") {
+    const existingProfile = await getProfile(admin, userId);
+    if (existingProfile.role === "admin" && existingProfile.is_active) {
+      await assertCanRemoveAdminAccess(admin, callerId, userId);
+    }
     const { error: authError } = await admin.auth.admin.updateUserById(userId, {
       ban_duration: "876000h",
     });
@@ -298,9 +353,9 @@ Deno.serve(async (request) => {
     return json({ error: { message: "Method not allowed." } }, 405, origin);
   }
   try {
-    const { admin } = await authorize(request);
+    const { admin, callerId } = await authorize(request);
     const body = (await request.json()) as Record<string, unknown>;
-    const result = await executeAction(admin, body);
+    const result = await executeAction(admin, callerId, body);
     return json(result, 200, origin);
   } catch (error) {
     const status = error instanceof RequestError ? error.status : 500;

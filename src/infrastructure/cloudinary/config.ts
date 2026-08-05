@@ -5,7 +5,7 @@ import { auto } from "@cloudinary/url-gen/qualifiers/format";
 import { auto as autoQuality } from "@cloudinary/url-gen/qualifiers/quality";
 import { env } from "@/shared/env";
 
-export const cloudinaryCloudName = env.VITE_CLOUDINARY_CLOUD_NAME ?? "kisok_store";
+export const cloudinaryCloudName = env.VITE_CLOUDINARY_CLOUD_NAME ?? "ssq2hy1i";
 export const cloudinaryUploadPreset = env.VITE_CLOUDINARY_UPLOAD_PRESET ?? "";
 
 export const cld = new Cloudinary({

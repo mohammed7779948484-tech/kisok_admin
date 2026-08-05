@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { AdvancedImage, lazyload, placeholder, responsive } from "@cloudinary/react";
 import { cloudinarySquare } from "@/infrastructure/cloudinary/config";
 
@@ -14,7 +15,13 @@ export function CloudinaryImage({
   className?: string;
   size?: number;
 }) {
-  if (publicId) {
+  const [publicIdFailed, setPublicIdFailed] = useState(false);
+
+  useEffect(() => {
+    setPublicIdFailed(false);
+  }, [publicId]);
+
+  if (publicId && !publicIdFailed) {
     return (
       <AdvancedImage
         alt={alt}
@@ -22,6 +29,7 @@ export function CloudinaryImage({
         cldImg={cloudinarySquare(publicId, size)}
         height={size}
         plugins={[responsive(), placeholder({ mode: "blur" }), lazyload()]}
+        onError={() => setPublicIdFailed(true)}
         width={size}
       />
     );
@@ -33,4 +41,3 @@ export function CloudinaryImage({
 
   return <div aria-label={alt} className={className} />;
 }
-

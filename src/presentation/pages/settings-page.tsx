@@ -64,7 +64,7 @@ export function SettingsPage() {
     try {
       await update.mutateAsync({
         resource: "store_settings",
-        id: "true",
+        id: String(record.id),
         values: {
           store_name: form.store_name.trim(),
           logo_public_id: logoId,
@@ -75,6 +75,8 @@ export function SettingsPage() {
           ),
           store_timezone: form.store_timezone.trim(),
         },
+        successNotification: false,
+        errorNotification: false,
       });
       toast.success("Store settings saved.");
     } catch (error) {

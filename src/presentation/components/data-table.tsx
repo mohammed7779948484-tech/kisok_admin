@@ -31,11 +31,20 @@ export function DataTable<TData>({
   data,
   searchPlaceholder = "Search records...",
   pageSize = 10,
+  remote,
 }: {
   columns: ColumnDef<TData, unknown>[];
   data: TData[];
   searchPlaceholder?: string;
   pageSize?: number;
+  remote?: {
+    page: number;
+    pageSize: number;
+    total: number;
+    search: string;
+    onPageChange: (page: number) => void;
+    onSearchChange: (search: string) => void;
+  };
 }) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = useState("");
@@ -43,9 +52,18 @@ export function DataTable<TData>({
   const table = useReactTable({
     data,
     columns: stableColumns,
-    state: { sorting, globalFilter },
+    state: {
+      sorting,
+      globalFilter: remote?.search ?? globalFilter,
+      ...(remote
+        ? { pagination: { pageIndex: remote.page - 1, pageSize: remote.pageSize } }
+        : {}),
+    },
     onSortingChange: setSorting,
-    onGlobalFilterChange: setGlobalFilter,
+    onGlobalFilterChange: remote ? undefined : setGlobalFilter,
+    manualFiltering: Boolean(remote),
+    manualPagination: Boolean(remote),
+    pageCount: remote ? Math.ceil(remote.total / remote.pageSize) : undefined,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -55,12 +73,16 @@ export function DataTable<TData>({
 
   return (
     <div className="flex flex-col gap-4">
-      <InputGroup className="max-w-sm">
+      <InputGroup className="w-full sm:max-w-sm">
         <InputGroupInput
           aria-label="Search table"
-          onChange={(event) => setGlobalFilter(event.target.value)}
+          onChange={(event) =>
+            remote
+              ? remote.onSearchChange(event.target.value)
+              : setGlobalFilter(event.target.value)
+          }
           placeholder={searchPlaceholder}
-          value={globalFilter}
+          value={remote?.search ?? globalFilter}
         />
         <InputGroupAddon>
           <SearchIcon />
@@ -102,27 +124,36 @@ export function DataTable<TData>({
           </TableBody>
         </Table>
       </div>
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-sm text-muted-foreground">
-          {table.getFilteredRowModel().rows.length} record(s)
+          {remote?.total ?? table.getFilteredRowModel().rows.length} record(s)
         </p>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full items-center justify-between gap-2 sm:w-auto">
           <Button
             aria-label="Previous page"
-            disabled={!table.getCanPreviousPage()}
-            onClick={() => table.previousPage()}
+            disabled={remote ? remote.page <= 1 : !table.getCanPreviousPage()}
+            onClick={() =>
+              remote ? remote.onPageChange(remote.page - 1) : table.previousPage()
+            }
             size="icon"
             variant="outline"
           >
             <ChevronLeftIcon />
           </Button>
           <span className="text-sm">
-            Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount() || 1}
+            Page {remote?.page ?? table.getState().pagination.pageIndex + 1} of{" "}
+            {table.getPageCount() || 1}
           </span>
           <Button
             aria-label="Next page"
-            disabled={!table.getCanNextPage()}
-            onClick={() => table.nextPage()}
+            disabled={
+              remote
+                ? remote.page >= Math.ceil(remote.total / remote.pageSize)
+                : !table.getCanNextPage()
+            }
+            onClick={() =>
+              remote ? remote.onPageChange(remote.page + 1) : table.nextPage()
+            }
             size="icon"
             variant="outline"
           >
