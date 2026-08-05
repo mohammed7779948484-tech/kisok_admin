@@ -5,6 +5,7 @@ import type { Brand, Category, Flavor, Product, StoreSettings } from "@/domain/e
 import type { CloudinaryAsset } from "@/domain/media";
 import {
   readUploadedAssets,
+  readForgottenIds,
   rememberUploadedAsset,
   forgetUploadedAsset,
 } from "@/infrastructure/cloudinary/local-media-library";
@@ -22,7 +23,10 @@ function subscribe(callback: () => void) {
 }
 
 function snapshot() {
-  return JSON.stringify(readUploadedAssets());
+  return JSON.stringify({
+    uploaded: readUploadedAssets(),
+    forgotten: readForgottenIds(),
+  });
 }
 
 function pushAsset(
@@ -47,7 +51,7 @@ export function removeMediaAsset(publicId: string) {
 }
 
 export function useMediaAssets() {
-  const uploadedSnapshot = useSyncExternalStore(subscribe, snapshot, () => "[]");
+  const localSnapshot = useSyncExternalStore(subscribe, snapshot, () => '{"uploaded":[],"forgotten":[]}');
   const cloudinary = useQuery({
     queryKey: ["cloudinary", "assets"],
     queryFn: listCloudinaryAssets,
@@ -79,10 +83,17 @@ export function useMediaAssets() {
     meta: { select: "id,store_name,logo_public_id,logo_secure_url" },
   });
 
-  const uploadedAssets = useMemo(
-    () => JSON.parse(uploadedSnapshot) as CloudinaryAsset[],
-    [uploadedSnapshot],
-  );
+  const { uploadedAssets, forgottenIds } = useMemo(() => {
+    try {
+      const parsed = JSON.parse(localSnapshot) as { uploaded: CloudinaryAsset[]; forgotten: string[] };
+      return {
+        uploadedAssets: parsed.uploaded ?? [],
+        forgottenIds: parsed.forgotten ?? [],
+      };
+    } catch {
+      return { uploadedAssets: [], forgottenIds: [] };
+    }
+  }, [localSnapshot]);
 
   const assets = useMemo(() => {
     const next: CloudinaryAsset[] = [...(cloudinary.data ?? [])];
@@ -104,7 +115,7 @@ export function useMediaAssets() {
     for (const item of settings.result.data) {
       pushAsset(next, item.logo_public_id, item.logo_secure_url, "catalog");
     }
-    return next;
+    return next.filter((item) => !forgottenIds.includes(item.publicId));
   }, [
     brands.result.data,
     categories.result.data,
@@ -113,6 +124,7 @@ export function useMediaAssets() {
     products.result.data,
     settings.result.data,
     uploadedAssets,
+    forgottenIds,
   ]);
   const queries = [
     cloudinary,
