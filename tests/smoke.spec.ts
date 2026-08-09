@@ -14,9 +14,10 @@ test("administrator can load the dashboard and sign out", async ({ page }) => {
   test.skip(!email || !password, "E2E admin credentials are not configured.");
 
   const mediaResponse = await page.request.get("/api/cloudinary/assets");
-  expect(mediaResponse.ok()).toBe(true);
-  const mediaPayload = (await mediaResponse.json()) as { assets: unknown[] };
-  expect(mediaPayload.assets.length).toBeGreaterThan(0);
+  expect(mediaResponse.status()).toBe(401);
+  expect(mediaResponse.headers()["content-type"]).toContain("application/json");
+  const mediaPayload = (await mediaResponse.json()) as { error?: string };
+  expect(mediaPayload.error).toBeTruthy();
 
   await page.goto("/login");
   await page.getByLabel("Email address").fill(email!);
@@ -36,7 +37,19 @@ test("administrator can load the dashboard and sign out", async ({ page }) => {
   });
   await expect(page.getByRole("tab", { name: "Flavors" })).toBeVisible();
 
+  const authenticatedMediaRequest = page.waitForResponse(
+    (response) =>
+      response.request().method() === "GET" &&
+      new URL(response.url()).pathname === "/api/cloudinary/assets",
+  );
   await page.goto("/media");
+  const authenticatedMediaResponse = await authenticatedMediaRequest;
+  expect(authenticatedMediaResponse.ok()).toBe(true);
+  expect(authenticatedMediaResponse.headers()["content-type"]).toContain("application/json");
+  const authenticatedMediaPayload = (await authenticatedMediaResponse.json()) as {
+    assets?: unknown[];
+  };
+  expect(Array.isArray(authenticatedMediaPayload.assets)).toBe(true);
   await expect(page.getByRole("heading", { name: "Media" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Upload image" })).toBeEnabled();
 

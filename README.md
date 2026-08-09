@@ -7,11 +7,12 @@ Private administrator dashboard for the kiosk Flutter application. It uses Refin
 1. Copy `.env.example` to `.env.local`.
 2. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`.
 3. Set `VITE_CLOUDINARY_CLOUD_NAME` and, for browser uploads, an unsigned `VITE_CLOUDINARY_UPLOAD_PRESET`.
-4. Install dependencies with `npm install`.
-5. Start the app with `npm run dev`.
+4. For local media listing/deletion and Vercel Functions, also set the server-only variables `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, and `CLOUDINARY_API_SECRET`.
+5. Install dependencies with `npm install`.
+6. Start the app with `npm run dev`.
 
 Only the public Supabase URL and publishable key belong in the browser environment. Never add a Supabase secret key, service-role key, or PostgreSQL connection string to a `VITE_*` variable.
-Cloudinary API secrets are also server-only; the Vite app uses the public cloud name plus an unsigned upload preset for the upload widget.
+Cloudinary API secrets are server-only. The browser sends the active Supabase access token to the media function, which verifies the user and the active administrator profile before listing or deleting Cloudinary assets. The Vite app uses only the public cloud name plus an unsigned upload preset for the upload widget.
 
 ## Commands
 

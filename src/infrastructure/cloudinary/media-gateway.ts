@@ -1,28 +1,53 @@
 import type { CloudinaryAsset } from "@/domain/media";
+import { supabaseClient } from "@/infrastructure/supabase/client";
+import { AppError } from "@/shared/errors";
 
 type MediaResponse = {
   assets?: CloudinaryAsset[];
   error?: string;
 };
 
+async function authorizedRequest(input: string, init?: RequestInit): Promise<Response> {
+  const { data, error } = await supabaseClient.auth.getSession();
+  if (error || !data.session?.access_token) {
+    throw new AppError("Your administrator session has expired. Sign in again.", 401);
+  }
+
+  const headers = new Headers(init?.headers);
+  headers.set("Accept", "application/json");
+  headers.set("Authorization", `Bearer ${data.session.access_token}`);
+  return fetch(input, { ...init, headers });
+}
+
+async function readJson(response: Response): Promise<MediaResponse> {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.toLowerCase().includes("application/json")) {
+    throw new AppError("The media service returned an invalid response.", 502);
+  }
+
+  try {
+    return (await response.json()) as MediaResponse;
+  } catch {
+    throw new AppError("The media service returned malformed data.", 502);
+  }
+}
+
 export async function listCloudinaryAssets(): Promise<CloudinaryAsset[]> {
-  const response = await fetch("/api/cloudinary/assets", {
-    headers: { Accept: "application/json" },
-  });
-  const payload = (await response.json()) as MediaResponse;
+  const response = await authorizedRequest("/api/cloudinary/assets");
+  const payload = await readJson(response);
   if (!response.ok) {
-    throw new Error(payload.error || "Cloudinary media could not be loaded.");
+    throw new AppError(payload.error || "Cloudinary media could not be loaded.", response.status);
   }
   return payload.assets ?? [];
 }
 
 export async function deleteCloudinaryAsset(publicId: string): Promise<void> {
-  const response = await fetch(`/api/cloudinary/assets?publicId=${encodeURIComponent(publicId)}`, {
-    method: "DELETE",
-    headers: { Accept: "application/json" },
-  });
+  const response = await authorizedRequest(
+    `/api/cloudinary/assets?publicId=${encodeURIComponent(publicId)}`,
+    { method: "DELETE" },
+  );
+  const payload = await readJson(response);
   if (!response.ok) {
-    const payload = (await response.json()) as { error?: string };
-    throw new Error(payload.error || "Cloudinary media could not be deleted.");
+    throw new AppError(payload.error || "Cloudinary media could not be deleted.", response.status);
   }
 }
