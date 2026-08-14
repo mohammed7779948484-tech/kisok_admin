@@ -61,6 +61,7 @@ export interface Product {
     category_id: string;
     categories?: Pick<Category, "id" | "name"> | null;
   }>;
+  flavors?: Array<{ count: number }>;
 }
 
 export interface Flavor {
@@ -75,7 +76,7 @@ export interface Flavor {
   is_active: boolean;
   created_at: string;
   updated_at: string;
-  products?: Pick<Product, "id" | "name"> | null;
+  products?: Pick<Product, "id" | "name" | "is_active"> | null;
   inventory?: { current_quantity: number; updated_at: string } | null;
 }
 
@@ -149,4 +150,18 @@ export interface AdminUser {
   isActive: boolean;
   createdAt: string;
   lastSignInAt: string | null;
+}
+
+export interface MediaAsset {
+  id: string;
+  public_id: string;
+  secure_url: string;
+  asset_id: string | null;
+  width: number | null;
+  height: number | null;
+  format: string | null;
+  bytes: number | null;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
 }

@@ -10,11 +10,13 @@ import {
 } from "@/infrastructure/cloudinary/config";
 
 type CloudinaryUploadInfo = {
+  asset_id?: string;
   public_id: string;
   secure_url: string;
   width?: number;
   height?: number;
   format?: string;
+  bytes?: number;
   created_at?: string;
 };
 
@@ -36,13 +38,15 @@ declare global {
 
 function toAsset(info: CloudinaryUploadInfo): CloudinaryAsset {
   return {
+    id: info.asset_id,
     publicId: info.public_id,
     secureUrl: info.secure_url,
     width: info.width,
     height: info.height,
     format: info.format,
+    bytes: info.bytes,
     createdAt: info.created_at,
-    source: "uploaded",
+    source: "library",
   };
 }
 
@@ -51,7 +55,7 @@ export function CloudinaryUploadButton({
   onUploaded,
 }: {
   folder?: string;
-  onUploaded: (asset: CloudinaryAsset) => void;
+  onUploaded: (asset: CloudinaryAsset) => Promise<void> | void;
 }) {
   const widgetRef = useRef<UploadWidget | null>(null);
   const onUploadedRef = useRef(onUploaded);
@@ -87,8 +91,15 @@ export function CloudinaryUploadButton({
 
           const event = result as { event?: string; info?: CloudinaryUploadInfo };
           if (event.event === "success" && event.info?.public_id && event.info.secure_url) {
-            onUploadedRef.current(toAsset(event.info));
-            toast.success("Image uploaded.");
+            void Promise.resolve(onUploadedRef.current(toAsset(event.info)))
+              .then(() => toast.success("Image uploaded and added to Media."))
+              .catch((uploadError) => {
+                toast.error(
+                  uploadError instanceof Error
+                    ? uploadError.message
+                    : "The image uploaded, but could not be added to Media.",
+                );
+              });
           }
         },
       );

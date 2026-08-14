@@ -1,16 +1,12 @@
 import { useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useInvalidate } from "@refinedev/core";
 import { CopyIcon, Trash2Icon, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CloudinaryImage } from "@/presentation/components/cloudinary-image";
 import { CloudinaryUploadButton } from "@/presentation/components/cloudinary-upload-button";
-import {
-  addMediaAsset,
-  removeMediaAsset,
-  useMediaAssets,
-} from "@/presentation/hooks/use-media-assets";
+import { saveMediaAsset, useMediaAssets } from "@/presentation/hooks/use-media-assets";
 import { deleteCloudinaryAsset } from "@/infrastructure/cloudinary/media-gateway";
 import { PageHeader } from "@/presentation/components/page-header";
 import { ErrorState, TableSkeleton } from "@/presentation/components/states";
@@ -18,19 +14,15 @@ import { toAppError } from "@/shared/errors";
 
 export function MediaPage() {
   const { assets, error, isLoading } = useMediaAssets();
-  const queryClient = useQueryClient();
+  const invalidate = useInvalidate();
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  const handleDelete = async (publicId: string, source: string) => {
+  const handleDelete = async (publicId: string) => {
     if (!confirm(`Are you sure you want to delete "${publicId}"?`)) return;
     setDeletingId(publicId);
     try {
-      if (source === "uploaded") {
-        removeMediaAsset(publicId);
-      } else {
-        await deleteCloudinaryAsset(publicId);
-        await queryClient.invalidateQueries({ queryKey: ["cloudinary", "assets"] });
-      }
+      await deleteCloudinaryAsset(publicId);
+      await invalidate({ resource: "media_assets", invalidates: ["list"] });
       toast.success("Image deleted successfully.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to delete image.");
@@ -42,7 +34,14 @@ export function MediaPage() {
   return (
     <>
       <PageHeader
-        actions={<CloudinaryUploadButton onUploaded={addMediaAsset} />}
+        actions={
+          <CloudinaryUploadButton
+            onUploaded={async (asset) => {
+              await saveMediaAsset(asset);
+              await invalidate({ resource: "media_assets", invalidates: ["list"] });
+            }}
+          />
+        }
         description="Upload Cloudinary images once, then reuse them in brands, products, categories, and flavors."
         title="Media"
       />
@@ -64,9 +63,7 @@ export function MediaPage() {
             />
             <div className="flex flex-col gap-2 p-3">
               <div className="flex items-center justify-between gap-2">
-                <Badge variant={asset.source === "uploaded" ? "default" : "secondary"}>
-                  {asset.source}
-                </Badge>
+                <Badge variant="secondary">Media library</Badge>
                 <div className="flex gap-1">
                   <Button
                     aria-label="Copy Cloudinary URL"
@@ -83,7 +80,7 @@ export function MediaPage() {
                   <Button
                     aria-label="Delete image"
                     disabled={deletingId === asset.publicId}
-                    onClick={() => void handleDelete(asset.publicId, asset.source)}
+                    onClick={() => void handleDelete(asset.publicId)}
                     size="icon"
                     type="button"
                     variant="ghost"

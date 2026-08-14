@@ -42,11 +42,15 @@ export function SettingsPage() {
   const save = async () => {
     const logoId = form.logo_public_id?.trim() || null;
     const logoUrl = form.logo_secure_url?.trim() || null;
+    const lowStockThreshold = Number(form.global_low_stock_threshold);
+    const successResetSeconds = Number(form.customer_success_reset_seconds);
     if (
       !form.store_name?.trim() ||
       !form.store_timezone?.trim() ||
-      Number(form.global_low_stock_threshold) < 0 ||
-      Number(form.customer_success_reset_seconds) <= 0
+      !Number.isSafeInteger(lowStockThreshold) ||
+      lowStockThreshold < 0 ||
+      !Number.isSafeInteger(successResetSeconds) ||
+      successResetSeconds <= 0
     ) {
       toast.error("Store name, timezone, and valid numeric values are required.");
       return;
@@ -69,10 +73,8 @@ export function SettingsPage() {
           store_name: form.store_name.trim(),
           logo_public_id: logoId,
           logo_secure_url: logoUrl,
-          global_low_stock_threshold: Number(form.global_low_stock_threshold),
-          customer_success_reset_seconds: Number(
-            form.customer_success_reset_seconds,
-          ),
+          global_low_stock_threshold: lowStockThreshold,
+          customer_success_reset_seconds: successResetSeconds,
           store_timezone: form.store_timezone.trim(),
         },
         successNotification: false,
@@ -169,6 +171,7 @@ export function SettingsPage() {
                     publicId={form.logo_public_id}
                     secureUrl={form.logo_secure_url}
                     size={640}
+                    fit="contain"
                   />
                 ) : null}
                 <div className="mt-2 flex gap-2">

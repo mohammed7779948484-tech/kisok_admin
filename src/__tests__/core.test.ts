@@ -87,7 +87,7 @@ describe("critical application boundaries", () => {
       cover_public_id: null,
       cover_secure_url: null,
       short_description: null,
-      search_keywords: [],
+      search_keywords: ["coffee", "iced"],
       display_order: 1,
       is_active: true,
       created_at: "",
@@ -100,7 +100,7 @@ describe("critical application boundaries", () => {
       name: "Vanilla",
       main_image_public_id: "flavors/vanilla",
       main_image_secure_url: "https://example.com/vanilla.png",
-      search_keywords: [],
+      search_keywords: ["vanilla"],
       display_order: 1,
       is_featured: false,
       is_active: true,
@@ -116,6 +116,7 @@ describe("critical application boundaries", () => {
           cover_public_id: "",
           cover_secure_url: "",
           short_description: "",
+          search_keywords: ["coffee", "iced"],
           display_order: 1,
           is_active: true,
           category_ids: ["category-id"],
@@ -130,6 +131,7 @@ describe("critical application boundaries", () => {
           main_image_public_id: "flavors/vanilla",
           main_image_secure_url: "https://example.com/vanilla.png",
           display_order: 1,
+          search_keywords: ["vanilla"],
           is_featured: false,
           is_active: true,
         },
@@ -143,6 +145,7 @@ describe("critical application boundaries", () => {
           main_image_public_id: "flavors/vanilla",
           main_image_secure_url: "https://example.com/vanilla.png",
           display_order: 2,
+          search_keywords: ["vanilla"],
           is_featured: false,
           is_active: true,
         },
@@ -168,27 +171,39 @@ describe("critical application boundaries", () => {
     });
   });
 
-  it("preserves the atomic product and category RPC contract", async () => {
+  it("uses the aggregate catalog RPC without clearing generated keywords", async () => {
     rpc.mockResolvedValueOnce({
       data: [{ product_id: "product-id", created: true }],
       error: null,
     });
     const { rpcGateway } = await import("@/infrastructure/supabase/rpc-gateway");
-    await rpcGateway.saveProduct(
+    await rpcGateway.saveProductCatalog(
       {
         name: "Coffee",
         brand_id: "brand-id",
-        search_keywords: [],
+        search_keywords: ["coffee", "iced"],
       },
       ["category-id"],
+      [
+        {
+          name: "Vanilla",
+          search_keywords: ["vanilla"],
+        },
+      ],
     );
-    expect(rpc).toHaveBeenCalledWith("save_product_with_categories", {
+    expect(rpc).toHaveBeenCalledWith("save_product_catalog", {
       product_payload: {
         name: "Coffee",
         brand_id: "brand-id",
-        search_keywords: [],
+        search_keywords: ["coffee", "iced"],
       },
       category_ids: ["category-id"],
+      flavor_payloads: [
+        {
+          name: "Vanilla",
+          search_keywords: ["vanilla"],
+        },
+      ],
     });
   });
 });

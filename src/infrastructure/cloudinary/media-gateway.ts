@@ -1,9 +1,7 @@
-import type { CloudinaryAsset } from "@/domain/media";
 import { supabaseClient } from "@/infrastructure/supabase/client";
 import { AppError } from "@/shared/errors";
 
 type MediaResponse = {
-  assets?: CloudinaryAsset[];
   error?: string;
 };
 
@@ -30,15 +28,6 @@ async function readJson(response: Response): Promise<MediaResponse> {
   } catch {
     throw new AppError("The media service returned malformed data.", 502);
   }
-}
-
-export async function listCloudinaryAssets(): Promise<CloudinaryAsset[]> {
-  const response = await authorizedRequest("/api/cloudinary/assets");
-  const payload = await readJson(response);
-  if (!response.ok) {
-    throw new AppError(payload.error || "Cloudinary media could not be loaded.", response.status);
-  }
-  return payload.assets ?? [];
 }
 
 export async function deleteCloudinaryAsset(publicId: string): Promise<void> {

@@ -38,14 +38,22 @@ import { DataTable } from "@/presentation/components/data-table";
 import { PageHeader } from "@/presentation/components/page-header";
 import { OrderStatusBadge } from "@/presentation/components/status-badge";
 import { ErrorState, TableSkeleton } from "@/presentation/components/states";
+import { useDebouncedValue } from "@/presentation/hooks/use-debounced-value";
 
 export function OrdersPage({ show = false }: { show?: boolean }) {
   const navigate = useNavigate();
   const params = useParams();
   const invalidate = useInvalidate();
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const deferredSearch = useDebouncedValue(search.trim(), 350);
+  const pageSize = 50;
   const orders = useList<Order>({
     resource: "orders",
-    pagination: { currentPage: 1, pageSize: 50 },
+    pagination: { currentPage: page, pageSize },
+    filters: deferredSearch
+      ? [{ field: "display_number", operator: "contains", value: deferredSearch }]
+      : [],
     sorters: [{ field: "created_at", order: "desc" }],
     meta: {
       select: "id,display_number,status,created_at,updated_at,completed_at,completed_by,cancelled_at,cancelled_by,cancellation_reason,assigned_preparation_id,order_items(quantity)",
@@ -183,7 +191,18 @@ export function OrdersPage({ show = false }: { show?: boolean }) {
         <DataTable
           columns={columns}
           data={orders.result.data}
-          searchPlaceholder="Search order number or status..."
+          remote={{
+            page,
+            pageSize,
+            total: orders.result.total ?? 0,
+            search,
+            onPageChange: setPage,
+            onSearchChange: (value) => {
+              setSearch(value);
+              setPage(1);
+            },
+          }}
+          searchPlaceholder="Search order number..."
         />
       ) : null}
       <Sheet

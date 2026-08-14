@@ -192,35 +192,38 @@ export function CatalogDirectPage({
                   <PencilIcon />
                   Edit
                 </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() =>
-                    update.mutate(
+                {!row.original.is_active ? (
+                  <DropdownMenuItem
+                    onClick={() =>
+                      update.mutate(
                       {
                         resource: kind,
                         id: row.original.id,
-                        values: { is_active: !row.original.is_active },
+                        values: { is_active: true },
                         successNotification: false,
                         errorNotification: false,
                       },
                       {
                         onSuccess: () =>
                           toast.success(
-                            row.original.is_active ? "Record deactivated." : "Record activated.",
+                            "Record activated.",
                           ),
                         onError: (error) => toast.error(toAppError(error).message),
                       },
                     )
-                  }
-                >
-                  {row.original.is_active ? "Deactivate" : "Activate"}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  variant="destructive"
-                  onClick={() => setDeleteTarget(row.original)}
-                >
-                  <Trash2Icon />
-                  Deactivate
-                </DropdownMenuItem>
+                    }
+                  >
+                    Activate
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem
+                    variant="destructive"
+                    onClick={() => setDeleteTarget(row.original)}
+                  >
+                    <Trash2Icon />
+                    Deactivate
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -233,6 +236,10 @@ export function CatalogDirectPage({
   const closeSheet = () => navigate(`/${kind}`);
   const save = async () => {
     const imageUrl = form.image_secure_url.trim();
+    if (!Number.isSafeInteger(form.display_order) || form.display_order < 0) {
+      toast.error("Display order must be a nonnegative whole number.");
+      return;
+    }
     if (imageUrl && !imageUrl.startsWith("https://")) {
       toast.error("Image URL must use HTTPS.");
       return;
@@ -241,7 +248,7 @@ export function CatalogDirectPage({
       name: form.name.trim(),
       image_public_id: form.image_public_id.trim() || null,
       image_secure_url: imageUrl || null,
-      display_order: Number(form.display_order),
+      display_order: form.display_order,
       is_active: form.is_active,
       ...(isCategory && mode === "edit"
         ? { parent_id: form.parent_id || null }

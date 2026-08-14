@@ -18,6 +18,7 @@ const roles = new Set<AppRole>(["admin", "preparation", "customer"]);
 const localOrigins = new Set([
   "http://localhost:5173",
   "http://127.0.0.1:5173",
+  "https://kisok-admin.vercel.app",
 ]);
 
 function isAllowedOrigin(origin: string | null) {
@@ -28,12 +29,7 @@ function isAllowedOrigin(origin: string | null) {
     .map((value) => value.trim())
     .filter(Boolean);
   if (configured.includes(origin)) return true;
-  try {
-    const url = new URL(origin);
-    return url.protocol === "https:" && url.hostname.endsWith(".vercel.app");
-  } catch {
-    return false;
-  }
+  return false;
 }
 
 function corsHeaders(origin: string | null) {
@@ -157,29 +153,22 @@ async function getProfile(admin: SupabaseClient, userId: string) {
   return data as Profile;
 }
 
-async function assertCanRemoveAdminAccess(
+async function updateProfile(
   admin: SupabaseClient,
   callerId: string,
   userId: string,
+  changes: Partial<Pick<Profile, "display_name" | "role" | "is_active">>,
 ) {
-  if (userId === callerId) {
-    throw new RequestError(
-      "You cannot remove your own active administrator access.",
-      409,
-    );
+  const { data, error } = await admin.rpc("admin_update_profile", {
+    actor_id: callerId,
+    target_id: userId,
+    changes,
+  });
+  if (error) {
+    const status = error.code === "23514" ? 409 : 400;
+    throw new RequestError(error.message, status);
   }
-  const { count, error } = await admin
-    .from("profiles")
-    .select("id", { count: "exact", head: true })
-    .eq("role", "admin")
-    .eq("is_active", true);
-  if (error) throw error;
-  if ((count ?? 0) <= 1) {
-    throw new RequestError(
-      "The last active administrator cannot be demoted or deactivated.",
-      409,
-    );
-  }
+  return (Array.isArray(data) ? data[0] : data) as Profile;
 }
 
 async function executeAction(
@@ -270,23 +259,12 @@ async function executeAction(
   if (action === "update") {
     const displayName = requiredString(body, "displayName");
     const role = requiredRole(body);
-    const existingProfile = await getProfile(admin, userId);
-    if (
-      existingProfile.role === "admin" &&
-      existingProfile.is_active &&
-      role !== "admin"
-    ) {
-      await assertCanRemoveAdminAccess(admin, callerId, userId);
-    }
-    const { error } = await admin
-      .from("profiles")
-      .update({ display_name: displayName, role })
-      .eq("id", userId);
-    if (error) throw error;
-    const [{ data: userData, error: userError }, profile] = await Promise.all([
-      admin.auth.admin.getUserById(userId),
-      getProfile(admin, userId),
-    ]);
+    const profile = await updateProfile(admin, callerId, userId, {
+      display_name: displayName,
+      role,
+    });
+    const { data: userData, error: userError } =
+      await admin.auth.admin.getUserById(userId);
     if (userError) throw userError;
     return toAdminUser(userData.user, profile);
   }
@@ -301,21 +279,13 @@ async function executeAction(
   }
 
   if (action === "deactivate") {
-    const existingProfile = await getProfile(admin, userId);
-    if (existingProfile.role === "admin" && existingProfile.is_active) {
-      await assertCanRemoveAdminAccess(admin, callerId, userId);
-    }
+    await updateProfile(admin, callerId, userId, { is_active: false });
     const { error: authError } = await admin.auth.admin.updateUserById(userId, {
       ban_duration: "876000h",
     });
-    if (authError) throw authError;
-    const { error: profileError } = await admin
-      .from("profiles")
-      .update({ is_active: false })
-      .eq("id", userId);
-    if (profileError) {
-      await admin.auth.admin.updateUserById(userId, { ban_duration: "none" });
-      throw profileError;
+    if (authError) {
+      await updateProfile(admin, callerId, userId, { is_active: true });
+      throw authError;
     }
     return { success: true };
   }
@@ -325,11 +295,9 @@ async function executeAction(
       ban_duration: "none",
     });
     if (authError) throw authError;
-    const { error: profileError } = await admin
-      .from("profiles")
-      .update({ is_active: true })
-      .eq("id", userId);
-    if (profileError) {
+    try {
+      await updateProfile(admin, callerId, userId, { is_active: true });
+    } catch (profileError) {
       await admin.auth.admin.updateUserById(userId, {
         ban_duration: "876000h",
       });

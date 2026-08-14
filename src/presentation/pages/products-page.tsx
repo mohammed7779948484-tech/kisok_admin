@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useInvalidate, useList, useOne, useUpdate } from "@refinedev/core";
+import { useInvalidate, useList, useOne } from "@refinedev/core";
 import type { ColumnDef } from "@tanstack/react-table";
 import {
   ArrowLeftIcon,
@@ -59,6 +59,7 @@ import { DataTable } from "@/presentation/components/data-table";
 import { PageHeader } from "@/presentation/components/page-header";
 import { ActiveBadge } from "@/presentation/components/status-badge";
 import { ErrorState, TableSkeleton } from "@/presentation/components/states";
+import { useUnsavedChangesWarning } from "@/presentation/hooks/use-unsaved-changes-warning";
 
 type PageMode = "list" | "create" | "edit" | "show";
 
@@ -72,7 +73,7 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
     pagination: { mode: "off" },
     sorters: [{ field: "display_order", order: "asc" }],
     meta: {
-      select: "id,name,brand_id,cover_public_id,cover_secure_url,short_description,search_keywords,display_order,is_active,created_at,updated_at,brands(id,name),product_categories(category_id,categories(id,name))",
+      select: "id,name,brand_id,cover_public_id,cover_secure_url,short_description,search_keywords,display_order,is_active,created_at,updated_at,brands(id,name),product_categories(category_id,categories(id,name)),flavors(count)",
     },
     queryOptions: { enabled: mode === "list" },
   });
@@ -95,7 +96,7 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
     meta: {
       select: "id,product_id,name,main_image_public_id,main_image_secure_url,search_keywords,display_order,is_featured,is_active,created_at,updated_at,inventory(current_quantity,updated_at)",
     },
-    queryOptions: { enabled: mode === "list" || Boolean(params.id) },
+    queryOptions: { enabled: mode !== "list" && Boolean(params.id) },
   });
   const brands = useList<Brand>({
     resource: "brands",
@@ -115,8 +116,6 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
     },
     queryOptions: { enabled: mode !== "list" },
   });
-  const updateFlavor = useUpdate<Flavor>();
-  const updateProduct = useUpdate<Product>();
   const current = productDetail.result;
   const currentFlavors = useMemo(
     () =>
@@ -134,6 +133,23 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
   const [activeTab, setActiveTab] = useState("general");
   const [validationMessage, setValidationMessage] = useState<string | null>(null);
 
+  const hasUnsavedChanges = useMemo(() => {
+    if (mode === "list" || mode === "show") return false;
+    if (mode === "create") return JSON.stringify(form) !== JSON.stringify(emptyForm);
+    if (!current) return false;
+    const formIds = new Set(form.flavors.flatMap((flavor) => (flavor.id ? [flavor.id] : [])));
+    return (
+      hasProductChanges(form, current) ||
+      form.flavors.some((flavor) => {
+        if (!flavor.id) return true;
+        const existing = currentFlavors.find((item) => item.id === flavor.id);
+        return !existing || hasFlavorChanges(flavor, existing);
+      }) ||
+      currentFlavors.some((flavor) => !formIds.has(flavor.id))
+    );
+  }, [current, currentFlavors, form, mode]);
+  useUnsavedChangesWarning(hasUnsavedChanges && !saving);
+
   useEffect(() => {
     if (current) {
       setForm({
@@ -142,6 +158,7 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
         cover_public_id: current.cover_public_id ?? "",
         cover_secure_url: current.cover_secure_url ?? "",
         short_description: current.short_description ?? "",
+        search_keywords: current.search_keywords,
         display_order: current.display_order,
         is_active: current.is_active,
         category_ids:
@@ -152,6 +169,7 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
               name: flavor.name,
               main_image_public_id: flavor.main_image_public_id,
               main_image_secure_url: flavor.main_image_secure_url,
+              search_keywords: flavor.search_keywords,
               display_order: flavor.display_order,
               is_featured: flavor.is_featured,
               is_active: flavor.is_active,
@@ -168,15 +186,6 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
     if (category.parent_id) return true;
     return !categories.result.data.some((child) => child.parent_id === category.id);
   });
-
-  const flavorCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const flavor of flavors.result.data) {
-      if (!flavor.is_active) continue;
-      counts.set(flavor.product_id, (counts.get(flavor.product_id) ?? 0) + 1);
-    }
-    return counts;
-  }, [flavors.result.data]);
 
   const columns = useMemo<ColumnDef<Product>[]>(
     () => [
@@ -217,7 +226,7 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
       {
         id: "flavors",
         header: "Flavors",
-        cell: ({ row }) => flavorCounts.get(row.original.id) ?? 0,
+        cell: ({ row }) => row.original.flavors?.[0]?.count ?? 0,
       },
       { accessorKey: "display_order", header: "Order" },
       {
@@ -255,7 +264,7 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
         ),
       },
     ],
-    [flavorCounts, navigate],
+    [navigate],
   );
 
   const close = () => navigate("/products");
@@ -288,9 +297,15 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
 
   const save = async () => {
     setValidationMessage(null);
-    if (!form.name.trim() || !form.brand_id || !form.category_ids.length) {
+    if (
+      !form.name.trim() ||
+      !form.brand_id ||
+      !form.category_ids.length ||
+      !Number.isSafeInteger(form.display_order) ||
+      form.display_order < 0
+    ) {
       setActiveTab("general");
-      setValidationMessage("Enter a product name, select a brand, and choose at least one category.");
+      setValidationMessage("Enter a product name, select a brand and category, and use a valid display order.");
       return;
     }
 
@@ -300,97 +315,65 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
       setValidationMessage("Add at least one active flavor before saving.");
       return;
     }
-    for (const flavor of activeFlavors) {
+    for (const flavor of form.flavors) {
       if (
         !flavor.name.trim() ||
         !flavor.main_image_public_id.trim() ||
-        !flavor.main_image_secure_url.startsWith("https://")
+        !flavor.main_image_secure_url.startsWith("https://") ||
+        !Number.isSafeInteger(flavor.display_order) ||
+        flavor.display_order < 0 ||
+        !Number.isSafeInteger(flavor.initial_quantity) ||
+        flavor.initial_quantity < 0
       ) {
         setActiveTab("flavors");
-        setValidationMessage("Every active flavor needs a name and an image from Media.");
+        setValidationMessage("Every flavor, including inactive flavors, needs a name, Media image, and nonnegative whole-number values.");
         return;
       }
     }
 
     setSaving(true);
     try {
-      let productId = current?.id;
-      let changed = false;
-
-      if (!current || hasProductChanges(form, current)) {
-        const result = await rpcGateway.saveProduct(
-          {
-            id: current?.id ?? null,
-            name: form.name.trim(),
-            brand_id: form.brand_id,
-            cover_public_id: form.cover_public_id.trim() || null,
-            cover_secure_url: form.cover_secure_url.trim() || null,
-            short_description: form.short_description.trim() || null,
-            search_keywords: [],
-            display_order: form.display_order,
-            is_active: form.is_active,
-          },
-          form.category_ids,
-        );
-        productId = result[0]?.product_id ?? current?.id;
-        changed = true;
-      }
-
-      if (!productId) throw new Error("Product save did not return a product id.");
-
-      const keptFlavorIds = new Set<string>();
-      for (const flavor of form.flavors) {
-        const values = {
-          product_id: productId,
-          name: flavor.name.trim(),
-          main_image_public_id: flavor.main_image_public_id.trim(),
-          main_image_secure_url: flavor.main_image_secure_url.trim(),
-          search_keywords: [],
-          display_order: flavor.display_order,
-          is_featured: flavor.is_featured,
-          is_active: flavor.is_active,
-        };
-
-        if (flavor.id) {
-          keptFlavorIds.add(flavor.id);
+      const formIds = new Set(form.flavors.flatMap((flavor) => (flavor.id ? [flavor.id] : [])));
+      const changed =
+        !current ||
+        hasProductChanges(form, current) ||
+        form.flavors.some((flavor) => {
+          if (!flavor.id) return true;
           const existing = currentFlavors.find((item) => item.id === flavor.id);
-          if (existing && hasFlavorChanges(flavor, existing)) {
-            await updateFlavor.mutateAsync({
-              resource: "flavors",
-              id: flavor.id,
-              values,
-              successNotification: false,
-              errorNotification: false,
-            });
-            changed = true;
-          }
-        } else if (flavor.is_active) {
-          const created = (await rpcGateway.createFlavor(
-            values,
-            flavor.initial_quantity,
-          )) as Array<{ flavor_id: string }>;
-          if (created[0]?.flavor_id) keptFlavorIds.add(created[0].flavor_id);
-          changed = true;
-        }
-      }
-
-      for (const existing of currentFlavors) {
-        if (!keptFlavorIds.has(existing.id) && existing.is_active) {
-          await updateFlavor.mutateAsync({
-            resource: "flavors",
-            id: existing.id,
-            values: { is_active: false },
-            successNotification: false,
-            errorNotification: false,
-          });
-          changed = true;
-        }
-      }
+          return !existing || hasFlavorChanges(flavor, existing);
+        }) ||
+        currentFlavors.some((flavor) => !formIds.has(flavor.id));
 
       if (!changed) {
         toast.info("No changes to save.");
         return;
       }
+
+      await rpcGateway.saveProductCatalog(
+        {
+          id: current?.id ?? null,
+          name: form.name.trim(),
+          brand_id: form.brand_id,
+          cover_public_id: form.cover_public_id.trim() || null,
+          cover_secure_url: form.cover_secure_url.trim() || null,
+          short_description: form.short_description.trim() || null,
+          search_keywords: form.search_keywords,
+          display_order: form.display_order,
+          is_active: form.is_active,
+        },
+        form.category_ids,
+        form.flavors.map((flavor) => ({
+          id: flavor.id ?? null,
+          name: flavor.name.trim(),
+          main_image_public_id: flavor.main_image_public_id.trim(),
+          main_image_secure_url: flavor.main_image_secure_url.trim(),
+          search_keywords: flavor.search_keywords,
+          display_order: flavor.display_order,
+          is_featured: flavor.is_featured,
+          is_active: flavor.is_active,
+          initial_quantity: flavor.initial_quantity,
+        })),
+      );
 
       await invalidate({ resource: "products", invalidates: ["list", "detail"] });
       await invalidate({ resource: "flavors", invalidates: ["list", "detail"] });
@@ -584,29 +567,19 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              disabled={updateProduct.mutation.isPending}
+              disabled={saving}
               onClick={() => {
                 if (!deleteTarget) return;
-                updateProduct.mutate(
-                  {
-                    resource: "products",
-                    id: deleteTarget.id,
-                    values: { is_active: false },
-                    successNotification: false,
-                    errorNotification: false,
-                  },
-                  {
-                    onSuccess: () => {
-                      setDeleteTarget(null);
-                      void invalidate({
-                        resource: "products",
-                        invalidates: ["list", "detail"],
-                      });
-                      toast.success("Product deactivated.");
-                    },
-                    onError: (error) => toast.error(toAppError(error).message),
-                  },
-                );
+                setSaving(true);
+                void rpcGateway
+                  .setProductActive(deleteTarget.id, false)
+                  .then(async () => {
+                    setDeleteTarget(null);
+                    await invalidate({ resource: "products", invalidates: ["list", "detail"] });
+                    toast.success("Product deactivated.");
+                  })
+                  .catch((error) => toast.error(toAppError(error).message))
+                  .finally(() => setSaving(false));
               }}
               variant="destructive"
             >

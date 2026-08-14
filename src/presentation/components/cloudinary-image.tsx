@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { AdvancedImage, lazyload, placeholder, responsive } from "@cloudinary/react";
-import { cloudinarySquare } from "@/infrastructure/cloudinary/config";
+import { cloudinaryContained, cloudinarySquare } from "@/infrastructure/cloudinary/config";
 
 export function CloudinaryImage({
   publicId,
@@ -8,12 +8,14 @@ export function CloudinaryImage({
   alt,
   className,
   size = 400,
+  fit = "cover",
 }: {
   publicId?: string | null;
   secureUrl?: string | null;
   alt: string;
   className?: string;
   size?: number;
+  fit?: "cover" | "contain";
 }) {
   const [publicIdFailed, setPublicIdFailed] = useState(false);
 
@@ -26,7 +28,7 @@ export function CloudinaryImage({
       <AdvancedImage
         alt={alt}
         className={className}
-        cldImg={cloudinarySquare(publicId, size)}
+        cldImg={fit === "contain" ? cloudinaryContained(publicId, size) : cloudinarySquare(publicId, size)}
         height={size}
         plugins={[responsive(), placeholder({ mode: "blur" }), lazyload()]}
         onError={() => setPublicIdFailed(true)}

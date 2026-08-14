@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useGetIdentity } from "@refinedev/core";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -39,7 +39,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   Field,
-  FieldDescription,
   FieldGroup,
   FieldLabel,
 } from "@/components/ui/field";
@@ -57,6 +56,7 @@ import { DataTable } from "@/presentation/components/data-table";
 import { PageHeader } from "@/presentation/components/page-header";
 import { ActiveBadge } from "@/presentation/components/status-badge";
 import { ErrorState, TableSkeleton } from "@/presentation/components/states";
+import { useDebouncedValue } from "@/presentation/hooks/use-debounced-value";
 
 type DialogMode = "create" | "edit" | "password" | null;
 
@@ -67,7 +67,7 @@ export function UsersPage() {
   const { data: identity } = useGetIdentity<AdminIdentity>();
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState("");
-  const deferredSearch = useDeferredValue(search);
+  const deferredSearch = useDebouncedValue(search, 350);
   const perPage = 50;
   const users = useQuery({
     queryKey: ["admin-users", page, deferredSearch],
@@ -397,16 +397,8 @@ export function UsersPage() {
               {confirmAction === "deactivate"
                 ? "The profile becomes inactive and Auth access is blocked. Historical records are preserved."
                 : "The profile and Auth account will regain access."}
-              {selected?.id === identity?.id
-                ? " You are changing your own administrator access and may be signed out immediately."
-                : ""}
             </AlertDialogDescription>
           </AlertDialogHeader>
-          {selected?.id === identity?.id && confirmAction === "deactivate" ? (
-            <FieldDescription>
-              This is the explicit self-deactivation confirmation required by policy.
-            </FieldDescription>
-          ) : null}
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction

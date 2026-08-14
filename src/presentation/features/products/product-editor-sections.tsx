@@ -228,7 +228,7 @@ export function FlavorsManager({
 
   const applyGlobalStock = () => {
     const quantity = Number(globalStock);
-    if (!Number.isFinite(quantity) || quantity < 0) {
+    if (!Number.isSafeInteger(quantity) || quantity < 0) {
       toast.error("Enter a valid stock quantity.");
       return;
     }
@@ -343,20 +343,7 @@ export function FlavorsManager({
                     value={flavor.initial_quantity}
                   />
                 </Field>
-              ) : (
-                <Field>
-                  <FieldLabel>Order</FieldLabel>
-                  <Input
-                    disabled={readonly}
-                    min={0}
-                    onChange={(event) =>
-                      updateFlavorAt(index, { display_order: Number(event.target.value) })
-                    }
-                    type="number"
-                    value={flavor.display_order}
-                  />
-                </Field>
-              )}
+              ) : <div />}
               <div className="flex items-center justify-end gap-2 md:justify-center">
                 <Field className="items-center gap-2" orientation="horizontal">
                   <FieldLabel>Active</FieldLabel>

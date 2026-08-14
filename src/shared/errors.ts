@@ -36,8 +36,11 @@ export function toAppError(error: unknown): AppError {
   if (value.code === "23505" || raw.includes("duplicate")) {
     return new AppError("A record with these values already exists.", 409, value.code);
   }
-  if (statusCode === 401 || raw.includes("invalid login credentials")) {
+  if (raw.includes("invalid login credentials")) {
     return new AppError("The email or password is incorrect.", 401, value.code);
+  }
+  if (statusCode === 401) {
+    return new AppError("Your administrator session has expired. Sign in again.", 401, value.code);
   }
   if (statusCode === 403 || raw.includes("permission denied")) {
     return new AppError("You do not have permission to perform this action.", 403, value.code);

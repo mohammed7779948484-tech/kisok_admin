@@ -51,7 +51,7 @@ export function DashboardPage() {
     resource: "inventory",
     pagination: { mode: "off" },
     meta: {
-      select: "flavor_id,current_quantity,updated_at,flavors(id,name,product_id,products(id,name))",
+      select: "flavor_id,current_quantity,updated_at,flavors(id,name,product_id,is_active,products(id,name,is_active))",
     },
     queryOptions: pollingOptions,
   });
@@ -107,7 +107,10 @@ export function DashboardPage() {
   const loading = queries.some((query) => query.isLoading);
   const threshold = settings.result.data[0]?.global_low_stock_threshold ?? 5;
   const lowStock = inventory.result.data.filter(
-    (row) => row.current_quantity <= threshold,
+    (row) =>
+      row.current_quantity <= threshold &&
+      row.flavors?.is_active === true &&
+      row.flavors.products?.is_active === true,
   );
   const newOrderCount = newOrders.result.total ?? newOrders.result.data.length;
   const readyOrderCount = readyOrders.result.total ?? readyOrders.result.data.length;
@@ -121,13 +124,13 @@ export function DashboardPage() {
       {error ? <ErrorState message={error.message} /> : null}
       <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <MetricCard
-          description="Available in the customer catalog"
+          description="Enabled products (availability also depends on stock)"
           icon={PackageCheckIcon}
           title="Active products"
           value={products.result.total ?? products.result.data.length}
         />
         <MetricCard
-          description="Orderable catalog variants"
+          description="Enabled flavors (availability also depends on stock)"
           icon={CoffeeIcon}
           title="Active flavors"
           value={flavors.result.total ?? flavors.result.data.length}
@@ -141,7 +144,7 @@ export function DashboardPage() {
         <MetricCard
           description={`${newOrderCount} new · ${readyOrderCount} ready`}
           icon={ShoppingBagIcon}
-          title="Recent orders"
+          title="Total orders"
           value={orders.result.total ?? orders.result.data.length}
         />
       </div>

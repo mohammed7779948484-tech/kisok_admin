@@ -1,20 +1,7 @@
 import { v2 as cloudinary } from "cloudinary";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 type RuntimeEnv = Record<string, string | undefined>;
-
-type CloudinaryResource = {
-  public_id: string;
-  secure_url: string;
-  width?: number;
-  height?: number;
-  format?: string;
-  created_at?: string;
-};
-
-type CloudinaryResourcesResponse = {
-  resources?: CloudinaryResource[];
-};
 
 class HttpError extends Error {
   constructor(
@@ -51,7 +38,10 @@ function bearerToken(request: Request): string {
   return match[1];
 }
 
-async function requireActiveAdministrator(request: Request, env: RuntimeEnv): Promise<void> {
+async function requireActiveAdministrator(
+  request: Request,
+  env: RuntimeEnv,
+): Promise<SupabaseClient> {
   const supabaseUrl = requiredEnv(env, "SUPABASE_URL", "VITE_SUPABASE_URL");
   const publishableKey = requiredEnv(
     env,
@@ -83,6 +73,7 @@ async function requireActiveAdministrator(request: Request, env: RuntimeEnv): Pr
   if (!profile || profile.role !== "admin" || profile.is_active !== true) {
     throw new HttpError("Active administrator access is required.", 403);
   }
+  return supabase;
 }
 
 function configureCloudinary(env: RuntimeEnv): void {
@@ -94,64 +85,69 @@ function configureCloudinary(env: RuntimeEnv): void {
   });
 }
 
-function isApplicationAsset(asset: CloudinaryResource): boolean {
-  return (
-    !asset.public_id.startsWith("cld-sample") &&
-    !asset.public_id.startsWith("samples/") &&
-    asset.public_id !== "sample" &&
-    asset.public_id !== "main-sample" &&
-    !asset.public_id.endsWith("-sample")
-  );
-}
-
-async function listAssets(): Promise<Response> {
-  const result = (await cloudinary.api.resources({
-    resource_type: "image",
-    type: "upload",
-    max_results: 500,
-    direction: "desc",
-  })) as CloudinaryResourcesResponse;
-
-  const assets = (result.resources ?? []).filter(isApplicationAsset).map((asset) => ({
-    publicId: asset.public_id,
-    secureUrl: asset.secure_url,
-    width: asset.width,
-    height: asset.height,
-    format: asset.format,
-    createdAt: asset.created_at,
-    source: "cloudinary" as const,
-  }));
-
-  return json({ assets });
-}
-
-async function deleteAsset(request: Request): Promise<Response> {
+async function deleteAsset(request: Request, supabase: SupabaseClient): Promise<Response> {
   const publicId = new URL(request.url).searchParams.get("publicId")?.trim();
   if (!publicId) throw new HttpError("publicId is required.", 400);
   if (publicId.length > 255) throw new HttpError("publicId is invalid.", 400);
 
-  await cloudinary.api.delete_resources([publicId], {
+  const { data: asset, error: assetError } = await supabase
+    .from("media_assets")
+    .select("id")
+    .eq("public_id", publicId)
+    .maybeSingle();
+  if (assetError) throw new HttpError("Media ownership could not be verified.", 503);
+  if (!asset) throw new HttpError("This image does not belong to the Media library.", 404);
+
+  const { data: usage, error: usageError } = await supabase.rpc(
+    "get_media_asset_usage",
+    { target_public_id: publicId },
+  );
+  if (usageError) throw new HttpError("Media references could not be verified.", 503);
+  const references = Object.values((usage ?? {}) as Record<string, number>).reduce(
+    (sum, count) => sum + Number(count || 0),
+    0,
+  );
+  if (references > 0) {
+    return json(
+      { error: "This image is still used by catalog or order records.", usage },
+      409,
+    );
+  }
+
+  const deletion = await cloudinary.api.delete_resources([publicId], {
     resource_type: "image",
     type: "upload",
     invalidate: true,
   });
+  const outcome = deletion.deleted?.[publicId];
+  if (outcome !== "deleted" && outcome !== "not_found") {
+    throw new HttpError("Cloudinary did not confirm image deletion.", 502);
+  }
+
+  const { error: deleteError } = await supabase
+    .from("media_assets")
+    .delete()
+    .eq("id", asset.id);
+  if (deleteError) {
+    throw new HttpError("The image was removed from Cloudinary but its Media record remains.", 503);
+  }
   return json({ success: true });
 }
 
 export function createCloudinaryAssetsHandler(env: RuntimeEnv) {
   return async function handleCloudinaryAssets(request: Request): Promise<Response> {
     try {
-      if (request.method !== "GET" && request.method !== "DELETE") {
+      if (request.method !== "DELETE") {
         return json(
           { error: "Method not allowed." },
           405,
-          { Allow: "GET, DELETE" },
+          { Allow: "DELETE" },
         );
       }
 
-      await requireActiveAdministrator(request, env);
+      const supabase = await requireActiveAdministrator(request, env);
       configureCloudinary(env);
-      return request.method === "GET" ? await listAssets() : await deleteAsset(request);
+      return await deleteAsset(request, supabase);
     } catch (error) {
       if (error instanceof HttpError) return json({ error: error.message }, error.status);
       console.error("Cloudinary media request failed:", error);

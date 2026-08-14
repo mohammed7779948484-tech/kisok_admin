@@ -11,7 +11,8 @@ import {
 import { Input } from "@/components/ui/input";
 import { CloudinaryImage } from "@/presentation/components/cloudinary-image";
 import { CloudinaryUploadButton } from "@/presentation/components/cloudinary-upload-button";
-import { addMediaAsset, useMediaAssets } from "@/presentation/hooks/use-media-assets";
+import { saveMediaAsset, useMediaAssets } from "@/presentation/hooks/use-media-assets";
+import { useInvalidate } from "@refinedev/core";
 import type { CloudinaryAsset } from "@/domain/media";
 import { toAppError } from "@/shared/errors";
 
@@ -28,7 +29,8 @@ export function MediaPicker({
   selectedPublicId?: string;
   multiple?: boolean;
 }) {
-  const { assets, error, isLoading } = useMediaAssets();
+  const invalidate = useInvalidate();
+  const { assets, error, isLoading } = useMediaAssets({ enabled: open });
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
 
@@ -72,8 +74,9 @@ export function MediaPicker({
             value={query}
           />
           <CloudinaryUploadButton
-            onUploaded={(asset) => {
-              addMediaAsset(asset);
+            onUploaded={async (asset) => {
+              await saveMediaAsset(asset);
+              await invalidate({ resource: "media_assets", invalidates: ["list"] });
               setSelected([asset.publicId]);
             }}
           />

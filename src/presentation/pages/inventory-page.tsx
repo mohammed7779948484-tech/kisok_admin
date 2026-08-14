@@ -42,6 +42,7 @@ import { toAppError } from "@/shared/errors";
 import { DataTable } from "@/presentation/components/data-table";
 import { PageHeader } from "@/presentation/components/page-header";
 import { ErrorState, TableSkeleton } from "@/presentation/components/states";
+import { useDebouncedValue } from "@/presentation/hooks/use-debounced-value";
 
 const adjustmentTypes: InventoryAdjustmentType[] = [
   "stock_received",
@@ -52,6 +53,10 @@ const adjustmentTypes: InventoryAdjustmentType[] = [
 
 export function InventoryPage() {
   const invalidate = useInvalidate();
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historySearch, setHistorySearch] = useState("");
+  const deferredHistorySearch = useDebouncedValue(historySearch.trim(), 350);
+  const historyPageSize = 50;
   const inventory = useList<InventoryRow>({
     resource: "inventory",
     pagination: { mode: "off" },
@@ -62,7 +67,10 @@ export function InventoryPage() {
   });
   const adjustments = useList<InventoryAdjustment>({
     resource: "inventory_adjustments",
-    pagination: { currentPage: 1, pageSize: 100 },
+    pagination: { currentPage: historyPage, pageSize: historyPageSize },
+    filters: deferredHistorySearch
+      ? [{ field: "reason", operator: "contains", value: deferredHistorySearch }]
+      : [],
     sorters: [{ field: "created_at", order: "desc" }],
     meta: {
       select: "id,flavor_id,quantity_change,quantity_before,quantity_after,adjustment_type,reason,created_by,created_at,order_id,flavors(id,name,products(id,name))",
@@ -184,7 +192,7 @@ export function InventoryPage() {
   );
 
   const submit = async () => {
-    if (!target || quantity < 0 || !reason.trim()) {
+    if (!target || !Number.isSafeInteger(quantity) || quantity < 0 || !reason.trim()) {
       toast.error("Enter a valid quantity and a reason.");
       return;
     }
@@ -255,7 +263,18 @@ export function InventoryPage() {
             <DataTable
               columns={historyColumns}
               data={adjustments.result.data}
-              searchPlaceholder="Search adjustment history..."
+              remote={{
+                page: historyPage,
+                pageSize: historyPageSize,
+                total: adjustments.result.total ?? 0,
+                search: historySearch,
+                onPageChange: setHistoryPage,
+                onSearchChange: (value) => {
+                  setHistorySearch(value);
+                  setHistoryPage(1);
+                },
+              }}
+              searchPlaceholder="Search adjustment reason..."
             />
           </TabsContent>
         </Tabs>
@@ -314,6 +333,7 @@ export function InventoryPage() {
                 id="inventory-quantity"
                 min={tab === "set" ? 0 : 1}
                 onChange={(event) => setQuantity(Number(event.target.value))}
+                step={1}
                 type="number"
                 value={quantity}
               />

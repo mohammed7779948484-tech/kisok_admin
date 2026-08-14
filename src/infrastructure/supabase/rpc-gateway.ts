@@ -30,6 +30,21 @@ export const rpcGateway = {
       product_payload: productPayload as Json,
       category_ids: categoryIds,
     }),
+  saveProductCatalog: (
+    productPayload: Record<string, unknown>,
+    categoryIds: string[],
+    flavorPayloads: Array<Record<string, unknown>>,
+  ) =>
+    rpc("save_product_catalog", {
+      product_payload: productPayload as Json,
+      category_ids: categoryIds,
+      flavor_payloads: flavorPayloads as Json[],
+    }),
+  setProductActive: (productId: string, active: boolean) =>
+    rpc("set_product_active", {
+      target_product_id: productId,
+      active,
+    }),
   createFlavor: (flavorPayload: Record<string, unknown>, initialQuantity: number) =>
     rpc("create_flavor_with_initial_stock", {
       flavor_payload: flavorPayload as Json,
