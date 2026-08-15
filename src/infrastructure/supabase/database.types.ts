@@ -690,6 +690,18 @@ export type Database = {
         }
         Returns: Json
       }
+      get_admin_catalog_visibility: {
+        Args: never
+        Returns: {
+          active_flavor_count: number
+          hidden_reasons: string[]
+          low_stock_flavor_count: number
+          orderable_flavor_count: number
+          product_id: string
+          product_visible: boolean
+          total_flavor_count: number
+        }[]
+      }
       list_preparation_order_items: {
         Args: { target_order_id: string }
         Returns: {

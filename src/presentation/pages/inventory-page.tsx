@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useInvalidate, useList } from "@refinedev/core";
 import type { ColumnDef } from "@tanstack/react-table";
 import { BoxesIcon, HistoryIcon, SlidersHorizontalIcon } from "lucide-react";
@@ -43,6 +43,7 @@ import { DataTable } from "@/presentation/components/data-table";
 import { PageHeader } from "@/presentation/components/page-header";
 import { ErrorState, TableSkeleton } from "@/presentation/components/states";
 import { useDebouncedValue } from "@/presentation/hooks/use-debounced-value";
+import { formatStoreDateTime } from "@/shared/date-time";
 
 const adjustmentTypes: InventoryAdjustmentType[] = [
   "stock_received",
@@ -62,7 +63,7 @@ export function InventoryPage() {
     pagination: { mode: "off" },
     sorters: [{ field: "updated_at", order: "desc" }],
     meta: {
-      select: "flavor_id,current_quantity,created_at,updated_at,flavors(id,product_id,name,main_image_public_id,main_image_secure_url,display_order,is_featured,is_active,created_at,updated_at,products(id,name))",
+      select: "flavor_id,current_quantity,created_at,updated_at,flavors(id,product_id,name,main_image_public_id,main_image_secure_url,display_order,is_featured,is_active,created_at,updated_at,products(id,name,is_active))",
     },
   });
   const adjustments = useList<InventoryAdjustment>({
@@ -79,7 +80,7 @@ export function InventoryPage() {
   const settings = useList<StoreSettings>({
     resource: "store_settings",
     pagination: { mode: "off" },
-    meta: { select: "id,global_low_stock_threshold" },
+    meta: { select: "id,global_low_stock_threshold,store_timezone" },
   });
   const [target, setTarget] = useState<InventoryRow | null>(null);
   const [tab, setTab] = useState("adjust");
@@ -89,6 +90,21 @@ export function InventoryPage() {
   const [reason, setReason] = useState("");
   const [saving, setSaving] = useState(false);
   const threshold = settings.result.data[0]?.global_low_stock_threshold ?? 5;
+  const storeTimezone = settings.result.data[0]?.store_timezone;
+  const resetAdjustmentForm = useCallback(() => {
+    setTab("adjust");
+    setType("stock_received");
+    setQuantity(1);
+    setReason("");
+  }, []);
+  const closeAdjustment = useCallback(() => {
+    setTarget(null);
+    resetAdjustmentForm();
+  }, [resetAdjustmentForm]);
+  const openAdjustment = useCallback((row: InventoryRow) => {
+    resetAdjustmentForm();
+    setTarget(row);
+  }, [resetAdjustmentForm]);
 
   const columns = useMemo<ColumnDef<InventoryRow>[]>(
     () => [
@@ -103,6 +119,14 @@ export function InventoryPage() {
             <span className="text-xs text-muted-foreground">
               {row.original.flavors?.name ?? "Flavor"}
             </span>
+            <div className="flex flex-wrap gap-1">
+              <Badge variant={row.original.flavors?.products?.is_active ? "outline" : "destructive"}>
+                Product {row.original.flavors?.products?.is_active ? "active" : "inactive"}
+              </Badge>
+              <Badge variant={row.original.flavors?.is_active ? "outline" : "destructive"}>
+                Flavor {row.original.flavors?.is_active ? "active" : "inactive"}
+              </Badge>
+            </div>
           </div>
         ),
       },
@@ -139,20 +163,20 @@ export function InventoryPage() {
       {
         accessorKey: "updated_at",
         header: "Last updated",
-        cell: ({ row }) => new Date(row.original.updated_at).toLocaleString(),
+        cell: ({ row }) => formatStoreDateTime(row.original.updated_at, storeTimezone),
       },
       {
         id: "actions",
         header: "",
         cell: ({ row }) => (
-          <Button onClick={() => setTarget(row.original)} size="sm" variant="outline">
+          <Button onClick={() => openAdjustment(row.original)} size="sm" variant="outline">
             <SlidersHorizontalIcon data-icon="inline-start" />
             Adjust
           </Button>
         ),
       },
     ],
-    [threshold],
+    [openAdjustment, storeTimezone, threshold],
   );
 
   const historyColumns = useMemo<ColumnDef<InventoryAdjustment>[]>(
@@ -185,10 +209,10 @@ export function InventoryPage() {
       {
         accessorKey: "created_at",
         header: "Created",
-        cell: ({ row }) => new Date(row.original.created_at).toLocaleString(),
+        cell: ({ row }) => formatStoreDateTime(row.original.created_at, storeTimezone),
       },
     ],
-    [],
+    [storeTimezone],
   );
 
   const submit = async () => {
@@ -222,9 +246,7 @@ export function InventoryPage() {
         invalidate({ resource: "inventory_adjustments", invalidates: ["list"] }),
       ]);
       toast.success("Inventory updated and audit history recorded.");
-      setTarget(null);
-      setReason("");
-      setQuantity(1);
+      closeAdjustment();
     } catch (error) {
       toast.error(toAppError(error).message);
     } finally {
@@ -281,7 +303,7 @@ export function InventoryPage() {
       ) : null}
       <Dialog
         onOpenChange={(open) => {
-          if (!open) setTarget(null);
+          if (!open) closeAdjustment();
         }}
         open={Boolean(target)}
       >
@@ -349,7 +371,7 @@ export function InventoryPage() {
             </Field>
           </FieldGroup>
           <DialogFooter>
-            <Button onClick={() => setTarget(null)} variant="outline">
+            <Button onClick={closeAdjustment} variant="outline">
               Cancel
             </Button>
             <Button disabled={saving} onClick={submit}>

@@ -16,16 +16,15 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import type {
-  Flavor,
   InventoryAdjustment,
   InventoryRow,
   Order,
-  Product,
   StoreSettings,
 } from "@/domain/entities";
 import { PageHeader } from "@/presentation/components/page-header";
 import { OrderStatusBadge } from "@/presentation/components/status-badge";
 import { ErrorState, TableSkeleton } from "@/presentation/components/states";
+import { useCatalogVisibility } from "@/presentation/hooks/use-catalog-visibility";
 
 const pollingOptions = {
   refetchInterval: () =>
@@ -35,18 +34,7 @@ const pollingOptions = {
 };
 
 export function DashboardPage() {
-  const products = useList<Product>({
-    resource: "products",
-    pagination: { currentPage: 1, pageSize: 1 },
-    meta: { select: "id" },
-    filters: [{ field: "is_active", operator: "eq", value: true }],
-  });
-  const flavors = useList<Flavor>({
-    resource: "flavors",
-    pagination: { currentPage: 1, pageSize: 1 },
-    meta: { select: "id" },
-    filters: [{ field: "is_active", operator: "eq", value: true }],
-  });
+  const catalogVisibility = useCatalogVisibility();
   const inventory = useList<InventoryRow>({
     resource: "inventory",
     pagination: { mode: "off" },
@@ -94,8 +82,7 @@ export function DashboardPage() {
   });
 
   const queries = [
-    products.query,
-    flavors.query,
+    catalogVisibility,
     inventory.query,
     settings.query,
     orders.query,
@@ -106,11 +93,22 @@ export function DashboardPage() {
   const error = queries.find((query) => query.error)?.error as Error | undefined;
   const loading = queries.some((query) => query.isLoading);
   const threshold = settings.result.data[0]?.global_low_stock_threshold ?? 5;
+  const visibleProducts = catalogVisibility.data?.filter((row) => row.product_visible) ?? [];
+  const visibleProductIds = new Set(visibleProducts.map((row) => row.product_id));
+  const visibleFlavorCount = visibleProducts.reduce(
+    (sum, row) => sum + Number(row.active_flavor_count),
+    0,
+  );
+  const orderableFlavorCount = visibleProducts.reduce(
+    (sum, row) => sum + Number(row.orderable_flavor_count),
+    0,
+  );
   const lowStock = inventory.result.data.filter(
     (row) =>
       row.current_quantity <= threshold &&
       row.flavors?.is_active === true &&
-      row.flavors.products?.is_active === true,
+      row.flavors.products?.is_active === true &&
+      visibleProductIds.has(row.flavors.product_id),
   );
   const newOrderCount = newOrders.result.total ?? newOrders.result.data.length;
   const readyOrderCount = readyOrders.result.total ?? readyOrders.result.data.length;
@@ -124,16 +122,16 @@ export function DashboardPage() {
       {error ? <ErrorState message={error.message} /> : null}
       <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <MetricCard
-          description="Enabled products (availability also depends on stock)"
+          description="Products visible after brand and category rules"
           icon={PackageCheckIcon}
-          title="Active products"
-          value={products.result.total ?? products.result.data.length}
+          title="Customer-visible products"
+          value={visibleProducts.length}
         />
         <MetricCard
-          description="Enabled flavors (availability also depends on stock)"
+          description={`${orderableFlavorCount} currently have stock`}
           icon={CoffeeIcon}
-          title="Active flavors"
-          value={flavors.result.total ?? flavors.result.data.length}
+          title="Visible flavors"
+          value={visibleFlavorCount}
         />
         <MetricCard
           description={`At or below ${threshold} units`}

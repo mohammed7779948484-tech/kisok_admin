@@ -1,6 +1,16 @@
 import { useState } from "react";
-import { CameraIcon, ImageIcon, PlusIcon, Trash2Icon, XIcon } from "lucide-react";
+import { CameraIcon, ImageIcon, PlusIcon, PowerOffIcon, Trash2Icon, XIcon } from "lucide-react";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,9 +20,10 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { Brand, Category } from "@/domain/entities";
+import { getAvailableFlavorCount, getCatalogVisibility } from "@/application/catalog/catalog-visibility";
 import { CloudinaryImage } from "@/presentation/components/cloudinary-image";
+import { CategoryPicker } from "@/presentation/features/products/category-picker";
 import { emptyFlavor, type ProductFlavorForm, type ProductForm } from "@/presentation/features/products/product-form-model";
 
 export function BasicInfoSection({
@@ -49,7 +60,7 @@ export function BasicInfoSection({
           <Field>
             <FieldLabel>Brand</FieldLabel>
             <Select
-              items={brands.map((brand) => ({ label: brand.name, value: brand.id }))}
+              items={brands.map((brand) => ({ label: `${brand.name}${brand.is_active ? "" : " (Inactive)"}`, value: brand.id }))}
               onValueChange={(value) => onChange({ ...form, brand_id: String(value) })}
               value={form.brand_id}
             >
@@ -60,7 +71,10 @@ export function BasicInfoSection({
                 <SelectGroup>
                   {brands.map((brand) => (
                     <SelectItem key={brand.id} value={brand.id}>
-                      {brand.name}
+                      <span className="flex w-full items-center justify-between gap-2">
+                        {brand.name}
+                        {!brand.is_active ? <Badge variant="destructive">Inactive</Badge> : null}
+                      </span>
                     </SelectItem>
                   ))}
                 </SelectGroup>
@@ -155,11 +169,13 @@ export function ClassificationSection({
   form,
   categories,
   readonly,
+  allowInactiveSelection,
   onChange,
 }: {
   form: ProductForm;
   categories: Category[];
   readonly: boolean;
+  allowInactiveSelection: boolean;
   onChange: (form: ProductForm) => void;
 }) {
   return (
@@ -171,23 +187,13 @@ export function ClassificationSection({
       <CardContent>
         <Field>
           <FieldLabel className="mb-3 block">Categories</FieldLabel>
-          <ToggleGroup
-            aria-label="Product categories"
-            className="flex-wrap justify-start"
-            disabled={readonly}
-            multiple
-            onValueChange={(categoryIds) =>
-              onChange({ ...form, category_ids: categoryIds })
-            }
-            value={form.category_ids}
-            variant="outline"
-          >
-            {categories.map((category) => (
-              <ToggleGroupItem key={category.id} value={category.id}>
-                {category.name}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
+          <CategoryPicker
+            allowInactiveSelection={allowInactiveSelection}
+            categories={categories}
+            onChange={(categoryIds) => onChange({ ...form, category_ids: categoryIds })}
+            readonly={readonly}
+            selectedIds={form.category_ids}
+          />
           {!categories.length ? (
             <FieldDescription>No assignable categories are available.</FieldDescription>
           ) : null}
@@ -209,6 +215,7 @@ export function FlavorsManager({
   onPickImage: (index: number) => void;
 }) {
   const [globalStock, setGlobalStock] = useState("");
+  const [deactivateIndex, setDeactivateIndex] = useState<number | null>(null);
 
   const updateFlavorAt = (index: number, values: Partial<ProductFlavorForm>) => {
     onChange({
@@ -354,16 +361,33 @@ export function FlavorsManager({
                   />
                 </Field>
                 {!readonly ? (
-                  <Button
-                    className="text-destructive"
-                    disabled={form.flavors.length === 1}
-                    onClick={() => removeFlavorAt(index)}
-                    size="icon"
-                    type="button"
-                    variant="ghost"
-                  >
-                    <Trash2Icon />
-                  </Button>
+                  flavor.id ? (
+                    <Button
+                      aria-label={`Deactivate ${flavor.name || "flavor"}`}
+                      className="text-destructive"
+                      disabled={!flavor.is_active}
+                      onClick={() => setDeactivateIndex(index)}
+                      size="icon"
+                      title="Deactivate flavor"
+                      type="button"
+                      variant="ghost"
+                    >
+                      <PowerOffIcon />
+                    </Button>
+                  ) : (
+                    <Button
+                      aria-label="Remove unsaved flavor"
+                      className="text-destructive"
+                      disabled={form.flavors.length === 1}
+                      onClick={() => removeFlavorAt(index)}
+                      size="icon"
+                      title="Remove unsaved flavor"
+                      type="button"
+                      variant="ghost"
+                    >
+                      <Trash2Icon />
+                    </Button>
+                  )
                 ) : null}
               </div>
             </div>
@@ -392,6 +416,36 @@ export function FlavorsManager({
           </div>
         ))}
       </CardContent>
+      <AlertDialog
+        onOpenChange={(open) => {
+          if (!open) setDeactivateIndex(null);
+        }}
+        open={deactivateIndex !== null}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Deactivate this flavor?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The flavor will be hidden from customers. Its inventory, adjustment history, and
+              order history remain intact.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep active</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (deactivateIndex !== null) {
+                  updateFlavorAt(deactivateIndex, { is_active: false });
+                }
+                setDeactivateIndex(null);
+              }}
+              variant="destructive"
+            >
+              Deactivate flavor
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Card>
   );
 }
@@ -399,16 +453,26 @@ export function FlavorsManager({
 export function ProductPreviewDialog({
   form,
   brands,
+  categories,
   open,
   onOpenChange,
 }: {
   form: ProductForm;
   brands: Brand[];
+  categories: Category[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
   const brand = brands.find((item) => item.id === form.brand_id);
   const activeFlavors = form.flavors.filter((flavor) => flavor.is_active);
+  const assignedCategories = categories.filter((category) => form.category_ids.includes(category.id));
+  const visibility = getCatalogVisibility({
+    productActive: form.is_active,
+    brand,
+    categories: assignedCategories,
+    allCategories: categories,
+  });
+  const availableFlavorCount = getAvailableFlavorCount(form.flavors);
 
   return (
     <Dialog onOpenChange={onOpenChange} open={open}>
@@ -433,6 +497,15 @@ export function ProductPreviewDialog({
             )}
           </div>
           <div className="flex flex-col gap-5">
+            <div className={`rounded-lg border p-3 ${visibility.visible ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-amber-300 bg-amber-50 text-amber-950"}`}>
+              <p className="font-medium">
+                {visibility.visible ? "Visible to customers" : "Hidden from customers"}
+              </p>
+              {visibility.reasons.map((reason) => (
+                <p className="text-sm" key={reason}>• {reason}</p>
+              ))}
+              <p className="mt-1 text-sm">Available flavors: {availableFlavorCount} / {form.flavors.length}</p>
+            </div>
             <div>
               <p className="text-sm text-muted-foreground">{brand?.name ?? "No brand selected"}</p>
               <h2 className="text-2xl font-semibold">{form.name || "New Product"}</h2>

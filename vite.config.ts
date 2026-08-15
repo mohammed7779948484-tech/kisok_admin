@@ -23,8 +23,15 @@ function cloudinaryLocalApi(env: Record<string, string>): Plugin {
       if (Array.isArray(value)) value.forEach((item) => headers.append(name, item));
       else if (value) headers.set(name, value);
     }
+    const chunks: Buffer[] = [];
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      for await (const chunk of request) {
+        chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+      }
+    }
+    const body = chunks.length ? Buffer.concat(chunks) : undefined;
     const result = await handleCloudinaryAssets(
-      new Request(requestUrl, { method: request.method, headers }),
+      new Request(requestUrl, { method: request.method, headers, body }),
     );
     response.statusCode = result.status;
     result.headers.forEach((value, name) => response.setHeader(name, value));

@@ -1,5 +1,6 @@
 import { supabaseClient } from "@/infrastructure/supabase/client";
 import { AppError } from "@/shared/errors";
+import type { CloudinaryAsset } from "@/domain/media";
 
 type MediaResponse = {
   error?: string;
@@ -14,6 +15,7 @@ async function authorizedRequest(input: string, init?: RequestInit): Promise<Res
   const headers = new Headers(init?.headers);
   headers.set("Accept", "application/json");
   headers.set("Authorization", `Bearer ${data.session.access_token}`);
+  if (init?.body) headers.set("Content-Type", "application/json");
   return fetch(input, { ...init, headers });
 }
 
@@ -38,5 +40,16 @@ export async function deleteCloudinaryAsset(publicId: string): Promise<void> {
   const payload = await readJson(response);
   if (!response.ok) {
     throw new AppError(payload.error || "Cloudinary media could not be deleted.", response.status);
+  }
+}
+
+export async function registerCloudinaryAsset(asset: CloudinaryAsset): Promise<void> {
+  const response = await authorizedRequest("/api/cloudinary/assets", {
+    method: "POST",
+    body: JSON.stringify({ publicId: asset.publicId }),
+  });
+  const payload = await readJson(response);
+  if (!response.ok) {
+    throw new AppError(payload.error || "Cloudinary media could not be registered.", response.status);
   }
 }

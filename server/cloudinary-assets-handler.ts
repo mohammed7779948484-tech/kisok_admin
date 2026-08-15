@@ -129,25 +129,74 @@ async function deleteAsset(request: Request, supabase: SupabaseClient): Promise<
     .delete()
     .eq("id", asset.id);
   if (deleteError) {
-    throw new HttpError("The image was removed from Cloudinary but its Media record remains.", 503);
+    console.error("Cloudinary asset deleted but media row cleanup failed:", publicId, deleteError.message);
+    throw new HttpError("The image was removed, but cleanup is incomplete. Retry deletion to repair it.", 503);
   }
   return json({ success: true });
+}
+
+async function registerAsset(request: Request, supabase: SupabaseClient): Promise<Response> {
+  let body: { publicId?: unknown };
+  try {
+    body = (await request.json()) as { publicId?: unknown };
+  } catch {
+    throw new HttpError("A valid JSON body is required.", 400);
+  }
+  const publicId = typeof body.publicId === "string" ? body.publicId.trim() : "";
+  if (!publicId || publicId.length > 255) {
+    throw new HttpError("The uploaded image ID is invalid.", 400);
+  }
+
+  let resource: Awaited<ReturnType<typeof cloudinary.api.resource>>;
+  try {
+    resource = await cloudinary.api.resource(publicId, { resource_type: "image", type: "upload" });
+  } catch {
+    throw new HttpError("The uploaded Cloudinary image could not be verified.", 404);
+  }
+
+  const { error } = await supabase.from("media_assets").upsert(
+    {
+      public_id: resource.public_id,
+      secure_url: resource.secure_url,
+      asset_id: resource.asset_id ?? null,
+      width: resource.width ?? null,
+      height: resource.height ?? null,
+      format: resource.format ?? null,
+      bytes: resource.bytes ?? null,
+    },
+    { onConflict: "public_id" },
+  );
+  if (!error) return json({ success: true }, 201);
+
+  console.error("Media registration failed; compensating Cloudinary upload:", publicId, error.message);
+  try {
+    await cloudinary.api.delete_resources([publicId], {
+      resource_type: "image",
+      type: "upload",
+      invalidate: true,
+    });
+  } catch (cleanupError) {
+    console.error("Cloudinary upload compensation also failed:", publicId, cleanupError);
+  }
+  throw new HttpError("The image could not be registered and the upload was rolled back.", 503);
 }
 
 export function createCloudinaryAssetsHandler(env: RuntimeEnv) {
   return async function handleCloudinaryAssets(request: Request): Promise<Response> {
     try {
-      if (request.method !== "DELETE") {
+      if (request.method !== "DELETE" && request.method !== "POST") {
         return json(
           { error: "Method not allowed." },
           405,
-          { Allow: "DELETE" },
+          { Allow: "DELETE, POST" },
         );
       }
 
       const supabase = await requireActiveAdministrator(request, env);
       configureCloudinary(env);
-      return await deleteAsset(request, supabase);
+      return request.method === "POST"
+        ? await registerAsset(request, supabase)
+        : await deleteAsset(request, supabase);
     } catch (error) {
       if (error instanceof HttpError) return json({ error: error.message }, error.status);
       console.error("Cloudinary media request failed:", error);

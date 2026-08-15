@@ -15,6 +15,7 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import { useNavigate, useParams } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -59,7 +60,7 @@ import {
 } from "@/components/ui/sheet";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
-import type { Brand, Category } from "@/domain/entities";
+import type { Brand, Category, Product } from "@/domain/entities";
 import { rpcGateway } from "@/infrastructure/supabase/rpc-gateway";
 import { toAppError } from "@/shared/errors";
 import { DataTable } from "@/presentation/components/data-table";
@@ -100,6 +101,7 @@ export function CatalogDirectPage({
   const navigate = useNavigate();
   const params = useParams();
   const invalidate = useInvalidate();
+  const queryClient = useQueryClient();
   const isCategory = kind === "categories";
   const title = isCategory ? "Categories" : "Brands";
   const query = useList<CatalogRow>({
@@ -117,6 +119,13 @@ export function CatalogDirectPage({
   const [deleteTarget, setDeleteTarget] = useState<CatalogRow | null>(null);
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
   const [submittingRpc, setSubmittingRpc] = useState(false);
+  const impactedProducts = useList<Product>({
+    resource: "products",
+    pagination: { mode: "off" },
+    filters: [{ field: "is_active", operator: "eq", value: true }],
+    meta: { select: "id,brand_id,is_active,product_categories(category_id),flavors(count)" },
+    queryOptions: { enabled: Boolean(deleteTarget) },
+  });
 
   useEffect(() => {
     if (current) {
@@ -136,10 +145,37 @@ export function CatalogDirectPage({
   const roots = useMemo(
     () =>
       isCategory
-        ? (query.result.data as Category[]).filter((category) => !category.parent_id)
+        ? (query.result.data as Category[]).filter(
+            (category) =>
+              !category.parent_id && (category.is_active || category.id === form.parent_id),
+          )
         : [],
-    [isCategory, query.result.data],
+    [form.parent_id, isCategory, query.result.data],
   );
+  const deactivationImpact = useMemo(() => {
+    if (!deleteTarget) return { products: 0, flavors: 0, children: 0 };
+    const affectedCategoryIds = new Set<string>();
+    let children = 0;
+    if (isCategory) {
+      affectedCategoryIds.add(deleteTarget.id);
+      for (const category of query.result.data as Category[]) {
+        if (category.parent_id === deleteTarget.id) {
+          affectedCategoryIds.add(category.id);
+          children += 1;
+        }
+      }
+    }
+    const products = impactedProducts.result.data.filter((product) =>
+      isCategory
+        ? product.product_categories?.some((link) => affectedCategoryIds.has(link.category_id))
+        : product.brand_id === deleteTarget.id,
+    );
+    return {
+      products: products.length,
+      flavors: products.reduce((sum, product) => sum + Number(product.flavors?.[0]?.count ?? 0), 0),
+      children,
+    };
+  }, [deleteTarget, impactedProducts.result.data, isCategory, query.result.data]);
   const columns = useMemo<ColumnDef<CatalogRow>[]>(
     () => [
       {
@@ -204,10 +240,10 @@ export function CatalogDirectPage({
                         errorNotification: false,
                       },
                       {
-                        onSuccess: () =>
-                          toast.success(
-                            "Record activated.",
-                          ),
+                        onSuccess: () => {
+                          void queryClient.invalidateQueries({ queryKey: ["admin-catalog-visibility"] });
+                          toast.success("Record activated.");
+                        },
                         onError: (error) => toast.error(toAppError(error).message),
                       },
                     )
@@ -230,7 +266,7 @@ export function CatalogDirectPage({
         ),
       },
     ],
-    [isCategory, kind, navigate, roots, update],
+    [isCategory, kind, navigate, queryClient, roots, update],
   );
 
   const closeSheet = () => navigate(`/${kind}`);
@@ -280,6 +316,7 @@ export function CatalogDirectPage({
         });
       }
       toast.success(`${isCategory ? "Category" : "Brand"} saved.`);
+      await queryClient.invalidateQueries({ queryKey: ["admin-catalog-visibility"] });
       closeSheet();
     } catch (error) {
       toast.error(toAppError(error).message);
@@ -461,11 +498,21 @@ export function CatalogDirectPage({
               The record is hidden from the active catalog while dependent products and historical
               data remain intact.
             </AlertDialogDescription>
+            {impactedProducts.query.isLoading ? (
+              <p className="text-sm text-muted-foreground">Calculating customer impact…</p>
+            ) : (
+              <div className="rounded-md border bg-muted/40 p-3 text-sm">
+                <p className="font-medium">This will hide up to:</p>
+                <p>{deactivationImpact.products} active products</p>
+                <p>{deactivationImpact.flavors} flavors</p>
+                {isCategory ? <p>{deactivationImpact.children} child categories</p> : null}
+              </div>
+            )}
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              disabled={update.mutation.isPending}
+              disabled={update.mutation.isPending || impactedProducts.query.isLoading}
               variant="destructive"
               onClick={() => {
                 if (!deleteTarget) return;
@@ -481,6 +528,7 @@ export function CatalogDirectPage({
                     onSuccess: () => {
                       setDeleteTarget(null);
                       void invalidate({ resource: kind, invalidates: ["list", "detail"] });
+                      void queryClient.invalidateQueries({ queryKey: ["admin-catalog-visibility"] });
                       toast.success("Record deactivated.");
                     },
                     onError: (error) => toast.error(toAppError(error).message),

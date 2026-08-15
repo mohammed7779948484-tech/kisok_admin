@@ -1,30 +1,11 @@
-import { useCallback, useEffect } from "react";
-import { useBeforeUnload } from "react-router";
+import { useEffect } from "react";
+import { useWarnAboutChange } from "@refinedev/core";
 
 export function useUnsavedChangesWarning(enabled: boolean) {
-  useEffect(() => {
-    if (!enabled) return;
-    const warnOnNavigation = (event: MouseEvent) => {
-      const target = event.target;
-      if (!(target instanceof Element)) return;
-      const link = target.closest("a[href]");
-      if (!link || link.getAttribute("target") === "_blank") return;
-      if (!window.confirm("You have unsaved changes. Leave this page anyway?")) {
-        event.preventDefault();
-        event.stopPropagation();
-      }
-    };
-    document.addEventListener("click", warnOnNavigation, true);
-    return () => document.removeEventListener("click", warnOnNavigation, true);
-  }, [enabled]);
+  const { setWarnWhen } = useWarnAboutChange();
 
-  useBeforeUnload(
-    useCallback(
-      (event) => {
-        if (!enabled) return;
-        event.preventDefault();
-      },
-      [enabled],
-    ),
-  );
+  useEffect(() => {
+    setWarnWhen(enabled);
+    return () => setWarnWhen(false);
+  }, [enabled, setWarnWhen]);
 }

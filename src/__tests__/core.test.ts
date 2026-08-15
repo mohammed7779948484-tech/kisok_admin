@@ -4,7 +4,7 @@ import {
   hasFlavorChanges,
   hasProductChanges,
 } from "@/application/products/product-change-set";
-import { parsePublicEnv } from "@/shared/env";
+import { parsePublicEnv } from "@/shared/public-env-schema";
 import { AppError, toAppError } from "@/shared/errors";
 
 const rpc = vi.fn();

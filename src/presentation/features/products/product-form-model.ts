@@ -46,3 +46,7 @@ export const emptyForm: ProductForm = {
   category_ids: [],
   flavors: [emptyFlavor()],
 };
+
+export function createProductForm(): ProductForm {
+  return { ...emptyForm, category_ids: [], flavors: [emptyFlavor()] };
+}

@@ -2,23 +2,10 @@ import { useMemo } from "react";
 import { useList } from "@refinedev/core";
 import type { MediaAsset } from "@/domain/entities";
 import type { CloudinaryAsset } from "@/domain/media";
-import { supabaseClient } from "@/infrastructure/supabase/client";
-import { toAppError } from "@/shared/errors";
+import { registerCloudinaryAsset } from "@/infrastructure/cloudinary/media-gateway";
 
 export async function saveMediaAsset(asset: CloudinaryAsset): Promise<void> {
-  const { error } = await supabaseClient.from("media_assets").upsert(
-    {
-      public_id: asset.publicId,
-      secure_url: asset.secureUrl,
-      asset_id: asset.id ?? null,
-      width: asset.width ?? null,
-      height: asset.height ?? null,
-      format: asset.format ?? null,
-      bytes: asset.bytes ?? null,
-    },
-    { onConflict: "public_id" },
-  );
-  if (error) throw toAppError(error);
+  await registerCloudinaryAsset(asset);
 }
 
 export function useMediaAssets({ enabled = true }: { enabled?: boolean } = {}) {

@@ -56,10 +56,10 @@ export interface Product {
   is_active: boolean;
   created_at: string;
   updated_at: string;
-  brands?: Pick<Brand, "id" | "name"> | null;
+  brands?: Pick<Brand, "id" | "name" | "is_active"> | null;
   product_categories?: Array<{
     category_id: string;
-    categories?: Pick<Category, "id" | "name"> | null;
+    categories?: Pick<Category, "id" | "name" | "parent_id" | "is_active"> | null;
   }>;
   flavors?: Array<{ count: number }>;
 }
@@ -85,7 +85,7 @@ export interface InventoryRow {
   current_quantity: number;
   created_at: string;
   updated_at: string;
-  flavors?: Flavor & { products?: Pick<Product, "id" | "name"> | null };
+  flavors?: Flavor & { products?: Pick<Product, "id" | "name" | "is_active"> | null };
 }
 
 export interface InventoryAdjustment {
@@ -164,4 +164,14 @@ export interface MediaAsset {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface CatalogVisibilityRow {
+  product_id: string;
+  product_visible: boolean;
+  hidden_reasons: string[];
+  active_flavor_count: number;
+  orderable_flavor_count: number;
+  low_stock_flavor_count: number;
+  total_flavor_count: number;
 }

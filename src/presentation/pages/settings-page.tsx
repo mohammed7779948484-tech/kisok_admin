@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useList, useUpdate } from "@refinedev/core";
 import { ImageIcon, SaveIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
@@ -24,6 +24,7 @@ import { PageHeader } from "@/presentation/components/page-header";
 import { ErrorState, TableSkeleton } from "@/presentation/components/states";
 import { CloudinaryImage } from "@/presentation/components/cloudinary-image";
 import { MediaPicker } from "@/presentation/components/media-picker";
+import { useUnsavedChangesWarning } from "@/presentation/hooks/use-unsaved-changes-warning";
 
 export function SettingsPage() {
   const settings = useList<StoreSettings>({
@@ -33,10 +34,21 @@ export function SettingsPage() {
   const update = useUpdate<StoreSettings>();
   const record = settings.result.data[0];
   const [form, setForm] = useState<Partial<StoreSettings>>({});
+  const [baseline, setBaseline] = useState<Partial<StoreSettings>>({});
+  const hydratedRecordId = useRef<string | null>(null);
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
+  const dirty = useMemo(
+    () => JSON.stringify(form) !== JSON.stringify(baseline),
+    [baseline, form],
+  );
+  useUnsavedChangesWarning(dirty && !update.mutation.isPending);
 
   useEffect(() => {
-    if (record) setForm(record);
+    if (record && hydratedRecordId.current !== String(record.id)) {
+      setForm(record);
+      setBaseline(record);
+      hydratedRecordId.current = String(record.id);
+    }
   }, [record]);
 
   const save = async () => {
@@ -80,6 +92,7 @@ export function SettingsPage() {
         successNotification: false,
         errorNotification: false,
       });
+      setBaseline(form);
       toast.success("Store settings saved.");
     } catch (error) {
       toast.error(toAppError(error).message);
@@ -95,6 +108,9 @@ export function SettingsPage() {
       {settings.query.isLoading ? <TableSkeleton /> : null}
       {settings.query.error ? (
         <ErrorState message={toAppError(settings.query.error).message} />
+      ) : null}
+      {!settings.query.isLoading && !settings.query.error && !record ? (
+        <ErrorState message="Store settings are not configured. Provision the singleton store_settings record before editing settings." />
       ) : null}
       {record ? (
         <Card className="max-w-3xl">

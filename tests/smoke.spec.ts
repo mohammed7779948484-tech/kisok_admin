@@ -21,6 +21,11 @@ test("administrator can load the dashboard and sign out", async ({ page }) => {
   expect(mediaResponse.headers()["content-type"]).toContain("application/json");
   const mediaPayload = (await mediaResponse.json()) as { error?: string };
   expect(mediaPayload.error).toBeTruthy();
+  const registerResponse = await page.request.post("/api/cloudinary/assets", {
+    data: { publicId: "test" },
+  });
+  expect(registerResponse.status()).toBe(401);
+  expect(registerResponse.headers()["content-type"]).toContain("application/json");
 
   await page.goto("/login");
   await page.getByLabel("Email address").fill(email!);
@@ -42,11 +47,38 @@ test("administrator can load the dashboard and sign out", async ({ page }) => {
     timeout: 20_000,
   });
   await expect(page.getByRole("tab", { name: "Flavors" })).toBeVisible();
+  const firstCategory = page.getByRole("checkbox").first();
+  await expect(firstCategory).toBeVisible();
+  await firstCategory.click();
+  await expect(page.getByText("1 categories selected")).toBeVisible();
+  await firstCategory.click();
+  await expect(page.getByText("0 categories selected")).toBeVisible();
 
   await page.goto("/media");
   await expect(page.getByRole("heading", { name: "Media" })).toBeVisible();
   await expect(page.getByText("Unable to load data")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Upload image" })).toBeEnabled();
+  const firstMediaId = page.getByTestId("media-public-id").first();
+  if (await firstMediaId.count()) {
+    const publicId = (await firstMediaId.textContent())?.trim();
+    const accessToken = await page.evaluate(() => {
+      const key = Object.keys(localStorage).find(
+        (item) => item.startsWith("sb-") && item.endsWith("-auth-token"),
+      );
+      if (!key) return null;
+      const stored = JSON.parse(localStorage.getItem(key) ?? "null") as {
+        access_token?: string;
+      } | null;
+      return stored?.access_token ?? null;
+    });
+    expect(publicId).toBeTruthy();
+    expect(accessToken).toBeTruthy();
+    const authenticatedRegister = await page.request.post("/api/cloudinary/assets", {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      data: { publicId },
+    });
+    expect(authenticatedRegister.status()).toBe(201);
+  }
 
   await page.getByText(email!, { exact: true }).click();
   await page.getByText("Sign out", { exact: true }).click();

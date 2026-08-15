@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useInvalidate, useList, useOne } from "@refinedev/core";
 import type { ColumnDef } from "@tanstack/react-table";
 import {
@@ -11,8 +11,10 @@ import {
   Trash2Icon,
 } from "lucide-react";
 import { useNavigate, useParams } from "react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -40,11 +42,12 @@ import {
   hasProductChanges,
 } from "@/application/products/product-change-set";
 import {
+  createProductForm,
   emptyFlavor,
-  emptyForm,
   type ProductFlavorForm,
   type ProductForm,
 } from "@/presentation/features/products/product-form-model";
+import { getCatalogVisibility } from "@/application/catalog/catalog-visibility";
 import {
   BasicInfoSection,
   ClassificationSection,
@@ -60,6 +63,7 @@ import { PageHeader } from "@/presentation/components/page-header";
 import { ActiveBadge } from "@/presentation/components/status-badge";
 import { ErrorState, TableSkeleton } from "@/presentation/components/states";
 import { useUnsavedChangesWarning } from "@/presentation/hooks/use-unsaved-changes-warning";
+import { useCatalogVisibility } from "@/presentation/hooks/use-catalog-visibility";
 
 type PageMode = "list" | "create" | "edit" | "show";
 
@@ -68,12 +72,14 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
   const navigate = useNavigate();
   const params = useParams();
   const invalidate = useInvalidate();
+  const queryClient = useQueryClient();
+  const catalogVisibility = useCatalogVisibility();
   const products = useList<Product>({
     resource: "products",
     pagination: { mode: "off" },
     sorters: [{ field: "display_order", order: "asc" }],
     meta: {
-      select: "id,name,brand_id,cover_public_id,cover_secure_url,short_description,search_keywords,display_order,is_active,created_at,updated_at,brands(id,name),product_categories(category_id,categories(id,name)),flavors(count)",
+      select: "id,name,brand_id,cover_public_id,cover_secure_url,short_description,search_keywords,display_order,is_active,created_at,updated_at,brands(id,name,is_active),product_categories(category_id,categories(id,name,parent_id,is_active)),flavors(count)",
     },
     queryOptions: { enabled: mode === "list" },
   });
@@ -81,7 +87,7 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
     resource: "products",
     id: params.id ?? "",
     meta: {
-      select: "id,name,brand_id,cover_public_id,cover_secure_url,short_description,search_keywords,display_order,is_active,created_at,updated_at,brands(id,name),product_categories(category_id,categories(id,name))",
+      select: "id,name,brand_id,cover_public_id,cover_secure_url,short_description,search_keywords,display_order,is_active,created_at,updated_at,brands(id,name,is_active),product_categories(category_id,categories(id,name,parent_id,is_active))",
     },
     queryOptions: { enabled: mode !== "list" && mode !== "create" && Boolean(params.id) },
   });
@@ -105,7 +111,7 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
     meta: {
       select: "id,name,image_public_id,image_secure_url,display_order,is_active,created_at,updated_at",
     },
-    queryOptions: { enabled: mode !== "list" },
+    queryOptions: { enabled: true },
   });
   const categories = useList<Category>({
     resource: "categories",
@@ -114,7 +120,7 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
     meta: {
       select: "id,name,parent_id,image_public_id,image_secure_url,display_order,is_active,created_at,updated_at",
     },
-    queryOptions: { enabled: mode !== "list" },
+    queryOptions: { enabled: true },
   });
   const current = productDetail.result;
   const currentFlavors = useMemo(
@@ -124,7 +130,8 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
         : [],
     [current, flavors.result.data],
   );
-  const [form, setForm] = useState<ProductForm>(emptyForm);
+  const [form, setForm] = useState<ProductForm>(createProductForm);
+  const hydratedRouteRef = useRef<string | null>(mode === "create" ? "create:" : null);
   const [saving, setSaving] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Product | null>(null);
   const [coverPickerOpen, setCoverPickerOpen] = useState(false);
@@ -135,7 +142,7 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
 
   const hasUnsavedChanges = useMemo(() => {
     if (mode === "list" || mode === "show") return false;
-    if (mode === "create") return JSON.stringify(form) !== JSON.stringify(emptyForm);
+    if (mode === "create") return JSON.stringify(form) !== JSON.stringify(createProductForm());
     if (!current) return false;
     const formIds = new Set(form.flavors.flatMap((flavor) => (flavor.id ? [flavor.id] : [])));
     return (
@@ -151,7 +158,15 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
   useUnsavedChangesWarning(hasUnsavedChanges && !saving);
 
   useEffect(() => {
-    if (current) {
+    const routeKey = `${mode}:${params.id ?? ""}`;
+    if (mode === "create") {
+      if (hydratedRouteRef.current !== routeKey) {
+        setForm(createProductForm());
+        hydratedRouteRef.current = routeKey;
+      }
+      return;
+    }
+    if (current && !flavors.query.isLoading && hydratedRouteRef.current !== routeKey) {
       setForm({
         name: current.name,
         brand_id: current.brand_id,
@@ -177,15 +192,13 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
             }))
           : [emptyFlavor()],
       });
-    } else if (mode === "create") {
-      setForm({ ...emptyForm, flavors: [emptyFlavor()] });
+      hydratedRouteRef.current = routeKey;
     }
-  }, [current, currentFlavors, mode]);
+  }, [current, currentFlavors, flavors.query.isLoading, mode, params.id]);
 
-  const assignableCategories = categories.result.data.filter((category) => {
-    if (category.parent_id) return true;
-    return !categories.result.data.some((child) => child.parent_id === category.id);
-  });
+  const selectableBrands = brands.result.data.filter(
+    (brand) => brand.is_active || brand.id === form.brand_id,
+  );
 
   const columns = useMemo<ColumnDef<Product>[]>(
     () => [
@@ -232,7 +245,21 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
       {
         accessorKey: "is_active",
         header: "Status",
-        cell: ({ row }) => <ActiveBadge active={row.original.is_active} />,
+        cell: ({ row }) => {
+          const visibility = catalogVisibility.data?.find(
+            (item) => item.product_id === row.original.id,
+          );
+          return (
+            <div className="flex flex-col items-start gap-1">
+              <ActiveBadge active={row.original.is_active} />
+              <Badge variant={visibility?.product_visible ? "secondary" : "outline"}>
+                {visibility?.product_visible
+                  ? "Customer visible"
+                  : visibility?.hidden_reasons[0] ?? "Checking visibility…"}
+              </Badge>
+            </div>
+          );
+        },
       },
       {
         id: "actions",
@@ -264,7 +291,7 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
         ),
       },
     ],
-    [navigate],
+    [catalogVisibility.data, navigate],
   );
 
   const close = () => navigate("/products");
@@ -313,6 +340,17 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
     if (!activeFlavors.length) {
       setActiveTab("flavors");
       setValidationMessage("Add at least one active flavor before saving.");
+      return;
+    }
+    const visibility = getCatalogVisibility({
+      productActive: form.is_active,
+      brand: brands.result.data.find((brand) => brand.id === form.brand_id),
+      categories: categories.result.data.filter((category) => form.category_ids.includes(category.id)),
+      allCategories: categories.result.data,
+    });
+    if (form.is_active && !visibility.visible) {
+      setActiveTab("general");
+      setValidationMessage(`An active product cannot use inactive dependencies: ${visibility.reasons.join("; ")}.`);
       return;
     }
     for (const flavor of form.flavors) {
@@ -378,6 +416,7 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
       await invalidate({ resource: "products", invalidates: ["list", "detail"] });
       await invalidate({ resource: "flavors", invalidates: ["list", "detail"] });
       await invalidate({ resource: "inventory", invalidates: ["list"] });
+      await queryClient.invalidateQueries({ queryKey: ["admin-catalog-visibility"] });
       toast.success("Product and flavors saved.");
       close();
     } catch (error) {
@@ -392,13 +431,15 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
     productDetail.query.isLoading ||
     flavors.query.isLoading ||
     brands.query.isLoading ||
-    categories.query.isLoading;
+    categories.query.isLoading ||
+    catalogVisibility.isLoading;
   const error =
     products.query.error ||
     productDetail.query.error ||
     flavors.query.error ||
     brands.query.error ||
-    categories.query.error;
+    categories.query.error ||
+    catalogVisibility.error;
   const readonly = mode === "show";
   const editorTitle = readonly
     ? current?.name
@@ -468,14 +509,15 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
           <TabsContent className="flex flex-col gap-6" value="general">
             <div className="grid gap-6 lg:grid-cols-2">
               <BasicInfoSection
-                brands={brands.result.data}
+                brands={selectableBrands}
                 form={form}
                 onChange={setForm}
                 onPickImage={() => setCoverPickerOpen(true)}
                 readonly={readonly}
               />
               <ClassificationSection
-                categories={assignableCategories}
+                allowInactiveSelection={mode !== "create"}
+                categories={categories.result.data}
                 form={form}
                 onChange={setForm}
                 readonly={readonly}
@@ -499,6 +541,7 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
       ) : null}
       <ProductPreviewDialog
         brands={brands.result.data}
+        categories={categories.result.data}
         form={form}
         onOpenChange={setPreviewOpen}
         open={previewOpen}
@@ -576,6 +619,7 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
                   .then(async () => {
                     setDeleteTarget(null);
                     await invalidate({ resource: "products", invalidates: ["list", "detail"] });
+                    await queryClient.invalidateQueries({ queryKey: ["admin-catalog-visibility"] });
                     toast.success("Product deactivated.");
                   })
                   .catch((error) => toast.error(toAppError(error).message))

@@ -80,7 +80,10 @@ export function CloudinaryUploadButton({
           uploadPreset: cloudinaryUploadPreset,
           folder,
           multiple: false,
-          sources: ["local", "camera", "url"],
+          maxFiles: 1,
+          maxFileSize: 10_000_000,
+          clientAllowedFormats: ["png", "jpg", "jpeg", "webp", "avif"],
+          sources: ["local", "url"],
           resourceType: "image",
         },
         (error, result) => {

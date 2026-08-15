@@ -93,7 +93,9 @@ export function MediaPage() {
                   </Button>
                 </div>
               </div>
-              <p className="truncate text-xs text-muted-foreground">{asset.publicId}</p>
+              <p className="truncate text-xs text-muted-foreground" data-testid="media-public-id">
+                {asset.publicId}
+              </p>
             </div>
           </div>
         ))}

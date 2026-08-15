@@ -1,4 +1,3 @@
-import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import {
   createClient,
   type AuthUser,
@@ -247,7 +246,10 @@ async function executeAction(
       is_active: true,
     });
     if (profileError) {
-      await admin.auth.admin.deleteUser(userId);
+      const { error: cleanupError } = await admin.auth.admin.deleteUser(userId);
+      if (cleanupError) {
+        console.error("admin-users create compensation failed", { userId, error: cleanupError.message });
+      }
       throw profileError;
     }
     const profile = await getProfile(admin, userId);
@@ -284,7 +286,11 @@ async function executeAction(
       ban_duration: "876000h",
     });
     if (authError) {
-      await updateProfile(admin, callerId, userId, { is_active: true });
+      try {
+        await updateProfile(admin, callerId, userId, { is_active: true });
+      } catch (cleanupError) {
+        console.error("admin-users deactivate compensation failed", { userId, error: cleanupError });
+      }
       throw authError;
     }
     return { success: true };
@@ -298,9 +304,12 @@ async function executeAction(
     try {
       await updateProfile(admin, callerId, userId, { is_active: true });
     } catch (profileError) {
-      await admin.auth.admin.updateUserById(userId, {
+      const { error: cleanupError } = await admin.auth.admin.updateUserById(userId, {
         ban_duration: "876000h",
       });
+      if (cleanupError) {
+        console.error("admin-users reactivate compensation failed", { userId, error: cleanupError.message });
+      }
       throw profileError;
     }
     return { success: true };
@@ -326,6 +335,9 @@ Deno.serve(async (request) => {
     const result = await executeAction(admin, callerId, body);
     return json(result, 200, origin);
   } catch (error) {
+    if (!(error instanceof RequestError)) {
+      console.error("admin-users request failed", error);
+    }
     const status = error instanceof RequestError ? error.status : 500;
     const message =
       error instanceof RequestError
