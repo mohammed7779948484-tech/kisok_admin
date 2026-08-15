@@ -1,9 +1,22 @@
-import { createCloudinaryAssetsHandler } from "../../server/cloudinary-assets-handler";
-
-const handleCloudinaryAssets = createCloudinaryAssetsHandler(process.env);
-
 export default {
-  fetch(request: Request): Promise<Response> {
-    return handleCloudinaryAssets(request);
+  async fetch(request: Request): Promise<Response> {
+    try {
+      const { createCloudinaryAssetsHandler } = await import(
+        "../../server/cloudinary-assets-handler.js"
+      );
+      return await createCloudinaryAssetsHandler(process.env)(request);
+    } catch (error) {
+      console.error("Cloudinary media function failed to initialize:", error);
+      return Response.json(
+        { error: "Cloudinary media service is temporarily unavailable." },
+        {
+          status: 503,
+          headers: {
+            "Cache-Control": "private, no-store",
+            Vary: "Authorization",
+          },
+        },
+      );
+    }
   },
 };
