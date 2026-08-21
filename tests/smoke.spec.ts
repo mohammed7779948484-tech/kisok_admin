@@ -9,6 +9,7 @@ test("protected routes redirect to the administrator login", async ({ page }) =>
 });
 
 test("administrator can load the dashboard and sign out", async ({ page }) => {
+  test.setTimeout(90_000);
   const email = process.env.E2E_ADMIN_EMAIL;
   const password = process.env.E2E_ADMIN_PASSWORD;
   test.skip(!email && !process.env.CI, "E2E admin credentials are not configured.");
@@ -51,6 +52,12 @@ test("administrator can load the dashboard and sign out", async ({ page }) => {
   await expect(firstCategory).toBeVisible();
   await firstCategory.click();
   await expect(page.getByText("1 categories selected")).toBeVisible();
+  await page.getByRole("button", { name: "Preview" }).click();
+  const preview = page.getByRole("dialog");
+  await expect(preview.getByText("Category assignments")).toBeVisible();
+  await expect(preview.getByText("Not selected")).toBeVisible();
+  await expect(preview.getByRole("listitem")).toHaveCount(1);
+  await page.keyboard.press("Escape");
   await firstCategory.click();
   await expect(page.getByText("0 categories selected")).toBeVisible();
 
@@ -80,7 +87,13 @@ test("administrator can load the dashboard and sign out", async ({ page }) => {
     expect(authenticatedRegister.status()).toBe(201);
   }
 
-  await page.getByText(email!, { exact: true }).click();
+  await page.goto("/users");
+  await expect(page.getByRole("heading", { name: "Users" })).toBeVisible();
+  const userSearch = page.getByRole("textbox", { name: "Search table" });
+  await userSearch.fill(email!);
+  await expect(page.getByText(email!, { exact: true }).first()).toBeVisible({ timeout: 15_000 });
+
+  await page.getByRole("button").filter({ hasText: email! }).click();
   await page.getByText("Sign out", { exact: true }).click();
   await expect(page).toHaveURL(/\/login$/);
 });

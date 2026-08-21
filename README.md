@@ -20,10 +20,12 @@ Cloudinary API secrets are server-only. Supabase `media_assets` is the persisten
 - `npm run lint` — run ESLint.
 - `npm run typecheck` — run TypeScript checks.
 - `npm test` — run focused unit tests.
+- `npm run test:integration` — run the destructive-safe, self-cleaning last-admin concurrency test against Supabase.
 - `npm run test:smoke` — build the app and run self-contained Playwright smoke tests.
 - `npm run build` — create a production build.
 
 The authenticated Playwright flow additionally requires `E2E_ADMIN_EMAIL` and `E2E_ADMIN_PASSWORD` in the local process environment. These values must be a Supabase Auth administrator login and are never committed.
+The integration test additionally requires server-only `SUPABASE_DB_URL`, `SUPABASE_URL`, and `SUPABASE_SECRET_KEY`. GitHub's `authenticated-smoke` and `last-admin-integration` checks intentionally fail when their required secrets are absent; they never report a skipped test as green.
 
 ## Architecture
 

@@ -8,10 +8,23 @@ export async function saveMediaAsset(asset: CloudinaryAsset): Promise<void> {
   await registerCloudinaryAsset(asset);
 }
 
-export function useMediaAssets({ enabled = true }: { enabled?: boolean } = {}) {
+export function useMediaAssets({
+  enabled = true,
+  page = 1,
+  pageSize = 48,
+  search = "",
+}: {
+  enabled?: boolean;
+  page?: number;
+  pageSize?: number;
+  search?: string;
+} = {}) {
   const media = useList<MediaAsset>({
     resource: "media_assets",
-    pagination: { mode: "off" },
+    pagination: { currentPage: page, pageSize },
+    filters: search.trim()
+      ? [{ field: "public_id", operator: "contains", value: search.trim() }]
+      : [],
     sorters: [{ field: "created_at", order: "desc" }],
     meta: {
       select:
@@ -40,5 +53,6 @@ export function useMediaAssets({ enabled = true }: { enabled?: boolean } = {}) {
     assets,
     error: media.query.error,
     isLoading: enabled && media.query.isLoading,
+    total: media.result.total ?? 0,
   };
 }

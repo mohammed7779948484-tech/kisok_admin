@@ -26,6 +26,16 @@ async function rpc<Name extends FunctionName>(
 
 export const rpcGateway = {
   getAdminCatalogVisibility: () => rpc("get_admin_catalog_visibility", undefined as never),
+  reorderCatalogItems: (
+    resourceName: "brands" | "categories" | "products" | "flavors",
+    orderedIds: string[],
+    startOrder = 0,
+  ) =>
+    rpc("reorder_catalog_items", {
+      resource_name: resourceName,
+      ordered_ids: orderedIds,
+      start_order: startOrder,
+    }),
   saveProduct: (productPayload: Record<string, unknown>, categoryIds: string[]) =>
     rpc("save_product_with_categories", {
       product_payload: productPayload as Json,

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { CheckIcon, ImagesIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,6 +15,7 @@ import { saveMediaAsset, useMediaAssets } from "@/presentation/hooks/use-media-a
 import { useInvalidate } from "@refinedev/core";
 import type { CloudinaryAsset } from "@/domain/media";
 import { toAppError } from "@/shared/errors";
+import { useDebouncedValue } from "@/presentation/hooks/use-debounced-value";
 
 export function MediaPicker({
   open,
@@ -30,17 +31,32 @@ export function MediaPicker({
   multiple?: boolean;
 }) {
   const invalidate = useInvalidate();
-  const { assets, error, isLoading } = useMediaAssets({ enabled: open });
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<string[]>([]);
+  const pageSize = 40;
+  const deferredQuery = useDebouncedValue(query.trim(), 300);
+  const { assets, error, isLoading, total } = useMediaAssets({
+    enabled: open,
+    page,
+    pageSize,
+    search: deferredQuery,
+  });
 
-  const filteredAssets = useMemo(() => {
-    const value = query.trim().toLowerCase();
-    if (!value) return assets;
-    return assets.filter((asset) => asset.publicId.toLowerCase().includes(value));
-  }, [assets, query]);
+  const changeOpen = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      setSelected([]);
+      setQuery("");
+      setPage(1);
+    }
+    onOpenChange(nextOpen);
+  };
 
-  const currentSelection = selected.length ? selected : selectedPublicId ? [selectedPublicId] : [];
+  const currentSelection = selected.length
+    ? selected
+    : selectedPublicId && assets.some((asset) => asset.publicId === selectedPublicId)
+      ? [selectedPublicId]
+      : [];
 
   const toggle = (publicId: string) => {
     if (!multiple) {
@@ -57,19 +73,21 @@ export function MediaPicker({
   const confirm = () => {
     const picked = assets.filter((asset) => currentSelection.includes(asset.publicId));
     onSelect(picked);
-    setSelected([]);
-    onOpenChange(false);
+    changeOpen(false);
   };
 
   return (
-    <Dialog onOpenChange={onOpenChange} open={open}>
+    <Dialog onOpenChange={changeOpen} open={open}>
       <DialogContent className="flex h-[82vh] w-[94vw] max-w-5xl flex-col">
         <DialogHeader>
           <DialogTitle>Select media</DialogTitle>
         </DialogHeader>
         <div className="flex flex-col gap-3 md:flex-row md:items-center">
           <Input
-            onChange={(event) => setQuery(event.target.value)}
+            onChange={(event) => {
+              setQuery(event.target.value);
+              setPage(1);
+            }}
             placeholder="Search by Cloudinary public ID..."
             value={query}
           />
@@ -90,9 +108,9 @@ export function MediaPicker({
             <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
               Loading media...
             </div>
-          ) : filteredAssets.length ? (
+          ) : assets.length ? (
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-5">
-              {filteredAssets.map((asset) => {
+              {assets.map((asset) => {
                 const isSelected = currentSelection.includes(asset.publicId);
                 return (
                   <button
@@ -128,11 +146,22 @@ export function MediaPicker({
             </div>
           )}
         </div>
+        <div className="flex items-center justify-between text-sm text-muted-foreground">
+          <span>{total} media item(s)</span>
+          <div className="flex items-center gap-2">
+            <Button disabled={page <= 1} onClick={() => setPage((value) => value - 1)} size="sm" type="button" variant="outline">
+              Previous
+            </Button>
+            <span>Page {page} of {Math.max(1, Math.ceil(total / pageSize))}</span>
+            <Button disabled={page >= Math.ceil(total / pageSize)} onClick={() => setPage((value) => value + 1)} size="sm" type="button" variant="outline">
+              Next
+            </Button>
+          </div>
+        </div>
         <DialogFooter className="gap-2">
           <Button
             onClick={() => {
-              setSelected([]);
-              onOpenChange(false);
+              changeOpen(false);
             }}
             type="button"
             variant="outline"

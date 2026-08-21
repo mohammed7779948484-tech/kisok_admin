@@ -9,7 +9,7 @@ import {
   type ColumnDef,
   type SortingState,
 } from "@tanstack/react-table";
-import { ChevronLeftIcon, ChevronRightIcon, SearchIcon } from "lucide-react";
+import { ChevronLeftIcon, ChevronRightIcon, GripVerticalIcon, SearchIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   InputGroup,
@@ -32,6 +32,7 @@ export function DataTable<TData>({
   searchPlaceholder = "Search records...",
   pageSize = 10,
   remote,
+  reorder,
 }: {
   columns: ColumnDef<TData, unknown>[];
   data: TData[];
@@ -45,9 +46,17 @@ export function DataTable<TData>({
     onPageChange: (page: number) => void;
     onSearchChange: (search: string) => void;
   };
+  reorder?: {
+    getId: (row: TData) => string;
+    onReorder: (orderedIds: string[]) => void | Promise<void>;
+    disabled?: boolean;
+  };
 }) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [globalFilter, setGlobalFilter] = useState("");
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const reorderDisabled =
+    Boolean(reorder?.disabled) || Boolean((remote?.search ?? globalFilter).trim());
   const stableColumns = useMemo(() => columns, [columns]);
   const table = useReactTable({
     data,
@@ -93,6 +102,7 @@ export function DataTable<TData>({
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
+                {reorder ? <TableHead className="w-10"><span className="sr-only">Reorder</span></TableHead> : null}
                 {headerGroup.headers.map((header) => (
                   <TableHead key={header.id}>
                     {header.isPlaceholder
@@ -106,7 +116,48 @@ export function DataTable<TData>({
           <TableBody>
             {table.getRowModel().rows.length ? (
               table.getRowModel().rows.map((row) => (
-                <TableRow data-state={row.getIsSelected() && "selected"} key={row.id}>
+                <TableRow
+                  className={draggingId === reorder?.getId(row.original) ? "opacity-60" : undefined}
+                  data-state={row.getIsSelected() && "selected"}
+                  key={row.id}
+                  onDragOver={(event) => {
+                    if (reorder && !reorderDisabled) event.preventDefault();
+                  }}
+                  onDrop={(event) => {
+                    event.preventDefault();
+                    if (!reorder || reorderDisabled || !draggingId) return;
+                    const targetId = reorder.getId(row.original);
+                    const orderedIds = table.getRowModel().rows.map((item) => reorder.getId(item.original));
+                    const from = orderedIds.indexOf(draggingId);
+                    const to = orderedIds.indexOf(targetId);
+                    if (from < 0 || to < 0 || from === to) return;
+                    const next = [...orderedIds];
+                    const [moved] = next.splice(from, 1);
+                    next.splice(to, 0, moved);
+                    setDraggingId(null);
+                    void reorder.onReorder(next);
+                  }}
+                >
+                  {reorder ? (
+                    <TableCell className="w-10">
+                      <button
+                        aria-label="Drag to reorder"
+                        className="cursor-grab touch-none text-muted-foreground active:cursor-grabbing"
+                        disabled={reorderDisabled}
+                        draggable={!reorderDisabled}
+                        onDragEnd={() => setDraggingId(null)}
+                        onDragStart={() => setDraggingId(reorder.getId(row.original))}
+                        title={
+                          reorderDisabled && (remote?.search ?? globalFilter).trim()
+                            ? "Clear search to reorder"
+                            : "Drag to reorder"
+                        }
+                        type="button"
+                      >
+                        <GripVerticalIcon className="size-4" />
+                      </button>
+                    </TableCell>
+                  ) : null}
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
@@ -116,7 +167,7 @@ export function DataTable<TData>({
               ))
             ) : (
               <TableRow>
-                <TableCell colSpan={columns.length}>
+                <TableCell colSpan={columns.length + (reorder ? 1 : 0)}>
                   <EmptyState />
                 </TableCell>
               </TableRow>

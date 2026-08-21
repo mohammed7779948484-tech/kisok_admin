@@ -40,7 +40,29 @@ jobs:
       - run: npm ci
       - run: deno check --no-lock --node-modules-dir=manual supabase/functions/admin-users/index.ts
 
-  smoke:
+  last-admin-integration:
+    runs-on: ubuntu-latest
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+      SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: npm
+      - name: Require integration database configuration
+        shell: bash
+        run: |
+          if [[ -z "$SUPABASE_DB_URL" || -z "$SUPABASE_URL" || -z "$SUPABASE_SECRET_KEY" ]]; then
+            echo "::error::SUPABASE_DB_URL, VITE_SUPABASE_URL, and SUPABASE_SECRET_KEY are required for the last-admin integration check."
+            exit 1
+          fi
+      - run: npm ci
+      - run: npm run test:integration
+
+  authenticated-smoke:
     runs-on: ubuntu-latest
     env:
       E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
@@ -58,6 +80,28 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
-      - run: npx playwright install --with-deps chromium
-      - run: npm run test:smoke
+      - name: Check authenticated smoke configuration
+        id: smoke-config
+        shell: bash
+        run: |
+          if [[ -n "$E2E_ADMIN_EMAIL" \
+            && -n "$E2E_ADMIN_PASSWORD" \
+            && -n "$VITE_SUPABASE_URL" \
+            && -n "$VITE_SUPABASE_PUBLISHABLE_KEY" \
+            && -n "$VITE_CLOUDINARY_CLOUD_NAME" \
+            && -n "$VITE_CLOUDINARY_UPLOAD_PRESET" \
+            && -n "$CLOUDINARY_CLOUD_NAME" \
+            && -n "$CLOUDINARY_API_KEY" \
+            && -n "$CLOUDINARY_API_SECRET" ]]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::error::Authenticated smoke requires all documented repository secrets; refusing to report a false green result."
+            exit 1
+          fi
+      - if: steps.smoke-config.outputs.configured == 'true'
+        run: npm ci
+      - if: steps.smoke-config.outputs.configured == 'true'
+        run: npx playwright install --with-deps chromium
+      - if: steps.smoke-config.outputs.configured == 'true'
+        run: npm run test:smoke

@@ -40,7 +40,15 @@ import { PageHeader } from "@/presentation/components/page-header";
 import { OrderStatusBadge } from "@/presentation/components/status-badge";
 import { ErrorState, TableSkeleton } from "@/presentation/components/states";
 import { useDebouncedValue } from "@/presentation/hooks/use-debounced-value";
-import { formatStoreDateTime } from "@/shared/date-time";
+import {
+  formatStoreDateTime,
+  nextStoreDateStartUtc,
+  storeDateStartUtc,
+} from "@/shared/date-time";
+import {
+  orderDetailsHref,
+  ordersListHref,
+} from "@/application/orders/orders-navigation";
 
 const orderStatuses: OrderStatus[] = ["new", "preparing", "ready", "completed", "cancelled"];
 
@@ -61,11 +69,21 @@ export function OrdersPage({ show = false }: { show?: boolean }) {
   const [dateTo, setDateTo] = useState(() => searchParams.get("to") ?? "");
   const deferredSearch = useDebouncedValue(search.trim(), 350);
   const pageSize = 50;
+  const settings = useList<StoreSettings>({
+    resource: "store_settings",
+    pagination: { mode: "off" },
+    meta: { select: "id,store_timezone" },
+  });
+  const storeTimezone = settings.result.data[0]?.store_timezone;
   const filters: CrudFilters = [];
   if (deferredSearch) filters.push({ field: "display_number", operator: "contains", value: deferredSearch });
   if (statusFilter !== "all") filters.push({ field: "status", operator: "eq", value: statusFilter });
-  if (dateFrom) filters.push({ field: "created_at", operator: "gte", value: new Date(`${dateFrom}T00:00:00`).toISOString() });
-  if (dateTo) filters.push({ field: "created_at", operator: "lte", value: new Date(`${dateTo}T23:59:59.999`).toISOString() });
+  if (dateFrom && storeTimezone) {
+    filters.push({ field: "created_at", operator: "gte", value: storeDateStartUtc(dateFrom, storeTimezone) });
+  }
+  if (dateTo && storeTimezone) {
+    filters.push({ field: "created_at", operator: "lt", value: nextStoreDateStartUtc(dateTo, storeTimezone) });
+  }
   const orders = useList<Order>({
     resource: "orders",
     pagination: { currentPage: page, pageSize },
@@ -75,6 +93,7 @@ export function OrdersPage({ show = false }: { show?: boolean }) {
       select: "id,display_number,status,created_at,updated_at,completed_at,completed_by,cancelled_at,cancelled_by,cancellation_reason,assigned_preparation_id,order_items(quantity)",
     },
     queryOptions: {
+      enabled: settings.query.isSuccess && Boolean(storeTimezone),
       refetchInterval: () =>
         typeof document !== "undefined" && document.visibilityState === "visible"
           ? 15_000
@@ -89,12 +108,6 @@ export function OrdersPage({ show = false }: { show?: boolean }) {
     },
     queryOptions: { enabled: show && Boolean(params.id) },
   });
-  const settings = useList<StoreSettings>({
-    resource: "store_settings",
-    pagination: { mode: "off" },
-    meta: { select: "id,store_timezone" },
-  });
-  const storeTimezone = settings.result.data[0]?.store_timezone;
   const current = show ? orderDetail.result : undefined;
   const [completeOpen, setCompleteOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
@@ -118,6 +131,9 @@ export function OrdersPage({ show = false }: { show?: boolean }) {
     if (page > 1) next.set("page", String(page));
     setSearchParams(next, { replace: true });
   }, [dateFrom, dateTo, page, search, setSearchParams, statusFilter]);
+
+  const listQuery = searchParams.toString();
+  const listHref = ordersListHref(searchParams);
 
   const columns = useMemo<ColumnDef<Order>[]>(
     () => [
@@ -152,7 +168,14 @@ export function OrdersPage({ show = false }: { show?: boolean }) {
         header: "",
         cell: ({ row }) => (
           <Button
-            onClick={() => navigate(`/orders/show/${row.original.id}`)}
+            onClick={() =>
+              navigate(
+                orderDetailsHref(
+                  row.original.id,
+                  new URLSearchParams(listQuery),
+                ),
+              )
+            }
             size="sm"
             variant="outline"
           >
@@ -162,7 +185,7 @@ export function OrdersPage({ show = false }: { show?: boolean }) {
         ),
       },
     ],
-    [navigate, storeTimezone],
+    [listQuery, navigate, storeTimezone],
   );
 
   const refresh = () =>
@@ -175,7 +198,7 @@ export function OrdersPage({ show = false }: { show?: boolean }) {
       await refresh();
       toast.success("Order completed.");
       setCompleteOpen(false);
-      navigate("/orders");
+      navigate(listHref);
     } catch (error) {
       toast.error(toAppError(error).message);
     } finally {
@@ -197,7 +220,7 @@ export function OrdersPage({ show = false }: { show?: boolean }) {
       ]);
       toast.success("Order cancelled and inventory restored when applicable.");
       setCancelOpen(false);
-      navigate("/orders");
+      navigate(listHref);
     } catch (error) {
       toast.error(toAppError(error).message);
     } finally {
@@ -211,15 +234,15 @@ export function OrdersPage({ show = false }: { show?: boolean }) {
         description="Operational order queue. Active data refreshes every 15 seconds."
         title="Orders"
       />
-      {orders.query.isLoading ? <TableSkeleton /> : null}
-      {orders.query.error ? (
-        <ErrorState message={toAppError(orders.query.error).message} />
+      {orders.query.isLoading || settings.query.isLoading ? <TableSkeleton /> : null}
+      {orders.query.error || settings.query.error ? (
+        <ErrorState message={toAppError(orders.query.error ?? settings.query.error).message} />
       ) : null}
       {show && orderDetail.query.isLoading ? <TableSkeleton /> : null}
       {show && orderDetail.query.error ? (
         <ErrorState message={toAppError(orderDetail.query.error).message} />
       ) : null}
-      {!orders.query.isLoading ? (
+      {!orders.query.isLoading && !settings.query.isLoading && storeTimezone ? (
         <div className="space-y-3">
           <div className="flex flex-wrap items-end gap-3 rounded-lg border p-3">
             <Field className="w-44">
@@ -271,7 +294,7 @@ export function OrdersPage({ show = false }: { show?: boolean }) {
       ) : null}
       <Sheet
         onOpenChange={(open) => {
-          if (!open) navigate("/orders");
+          if (!open) navigate(listHref);
         }}
         open={show && Boolean(current) && !orderDetail.query.isLoading}
       >
@@ -310,7 +333,7 @@ export function OrdersPage({ show = false }: { show?: boolean }) {
             ) : null}
           </div>
           <SheetFooter>
-            <Button onClick={() => navigate("/orders")} variant="outline">
+            <Button onClick={() => navigate(listHref)} variant="outline">
               Close
             </Button>
             {current && !["completed", "cancelled"].includes(current.status) ? (

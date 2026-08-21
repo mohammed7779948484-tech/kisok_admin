@@ -509,6 +509,7 @@ export type Database = {
         Row: {
           created_at: string
           display_name: string
+          email: string | null
           id: string
           is_active: boolean
           role: Database["public"]["Enums"]["app_role"]
@@ -517,6 +518,7 @@ export type Database = {
         Insert: {
           created_at?: string
           display_name: string
+          email?: string | null
           id: string
           is_active?: boolean
           role: Database["public"]["Enums"]["app_role"]
@@ -525,6 +527,7 @@ export type Database = {
         Update: {
           created_at?: string
           display_name?: string
+          email?: string | null
           id?: string
           is_active?: boolean
           role?: Database["public"]["Enums"]["app_role"]
@@ -700,6 +703,30 @@ export type Database = {
           product_id: string
           product_visible: boolean
           total_flavor_count: number
+        }[]
+      }
+      reorder_catalog_items: {
+        Args: {
+          ordered_ids: string[]
+          resource_name: string
+          start_order?: number
+        }
+        Returns: undefined
+      }
+      search_admin_profiles: {
+        Args: {
+          page_offset?: number
+          page_size?: number
+          search_term: string
+        }
+        Returns: {
+          created_at: string
+          display_name: string
+          email: string
+          id: string
+          is_active: boolean
+          role: Database["public"]["Enums"]["app_role"]
+          total_count: number
         }[]
       }
       list_preparation_order_items: {
