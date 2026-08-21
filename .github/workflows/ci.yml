@@ -58,6 +58,27 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
-      - run: npx playwright install --with-deps chromium
-      - run: npm run test:smoke
+      - name: Check authenticated smoke configuration
+        id: smoke-config
+        shell: bash
+        run: |
+          if [[ -n "$E2E_ADMIN_EMAIL" \
+            && -n "$E2E_ADMIN_PASSWORD" \
+            && -n "$VITE_SUPABASE_URL" \
+            && -n "$VITE_SUPABASE_PUBLISHABLE_KEY" \
+            && -n "$VITE_CLOUDINARY_CLOUD_NAME" \
+            && -n "$VITE_CLOUDINARY_UPLOAD_PRESET" \
+            && -n "$CLOUDINARY_CLOUD_NAME" \
+            && -n "$CLOUDINARY_API_KEY" \
+            && -n "$CLOUDINARY_API_SECRET" ]]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Authenticated smoke skipped because one or more required repository secrets are not configured."
+          fi
+      - if: steps.smoke-config.outputs.configured == 'true'
+        run: npm ci
+      - if: steps.smoke-config.outputs.configured == 'true'
+        run: npx playwright install --with-deps chromium
+      - if: steps.smoke-config.outputs.configured == 'true'
+        run: npm run test:smoke
