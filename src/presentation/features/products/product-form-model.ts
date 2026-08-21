@@ -50,3 +50,18 @@ export const emptyForm: ProductForm = {
 export function createProductForm(): ProductForm {
   return { ...emptyForm, category_ids: [], flavors: [emptyFlavor()] };
 }
+
+export function shouldHydrateProductForm({
+  mode,
+  routeKey,
+  hydratedRouteKey,
+  editDataReady,
+}: {
+  mode: "create" | "edit" | "show";
+  routeKey: string;
+  hydratedRouteKey: string | null;
+  editDataReady: boolean;
+}) {
+  if (hydratedRouteKey === routeKey) return false;
+  return mode === "create" || editDataReady;
+}

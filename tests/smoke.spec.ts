@@ -51,6 +51,12 @@ test("administrator can load the dashboard and sign out", async ({ page }) => {
   await expect(firstCategory).toBeVisible();
   await firstCategory.click();
   await expect(page.getByText("1 categories selected")).toBeVisible();
+  await page.getByRole("button", { name: "Preview" }).click();
+  const preview = page.getByRole("dialog");
+  await expect(preview.getByText("Category assignments")).toBeVisible();
+  await expect(preview.getByText("Not selected")).toBeVisible();
+  await expect(preview.getByRole("listitem")).toHaveCount(1);
+  await page.keyboard.press("Escape");
   await firstCategory.click();
   await expect(page.getByText("0 categories selected")).toBeVisible();
 

@@ -3,6 +3,47 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 
 type RuntimeEnv = Record<string, string | undefined>;
 
+type SupabaseFactory = (
+  url: string,
+  key: string,
+  options: Parameters<typeof createClient>[2],
+) => SupabaseClient;
+
+interface CloudinaryResource {
+  public_id: string;
+  secure_url: string;
+  asset_id?: string;
+  width?: number;
+  height?: number;
+  format?: string;
+  bytes?: number;
+}
+
+interface CloudinaryClient {
+  config(options: {
+    cloud_name: string;
+    api_key: string;
+    api_secret: string;
+    secure: boolean;
+  }): unknown;
+  api: {
+    resource(
+      publicId: string,
+      options: { resource_type: "image"; type: "upload" },
+    ): Promise<CloudinaryResource>;
+    delete_resources(
+      publicIds: string[],
+      options: { resource_type: "image"; type: "upload"; invalidate: true },
+    ): Promise<{ deleted?: Record<string, string> }>;
+  };
+}
+
+export interface CloudinaryAssetsHandlerDependencies {
+  createSupabaseClient?: SupabaseFactory;
+  cloudinaryClient?: CloudinaryClient;
+  logError?: (...values: unknown[]) => void;
+}
+
 class HttpError extends Error {
   constructor(
     message: string,
@@ -41,6 +82,7 @@ function bearerToken(request: Request): string {
 async function requireActiveAdministrator(
   request: Request,
   env: RuntimeEnv,
+  createSupabaseClient: SupabaseFactory,
 ): Promise<SupabaseClient> {
   const supabaseUrl = requiredEnv(env, "SUPABASE_URL", "VITE_SUPABASE_URL");
   const publishableKey = requiredEnv(
@@ -49,7 +91,7 @@ async function requireActiveAdministrator(
     "VITE_SUPABASE_PUBLISHABLE_KEY",
   );
   const token = bearerToken(request);
-  const supabase = createClient(supabaseUrl, publishableKey, {
+  const supabase = createSupabaseClient(supabaseUrl, publishableKey, {
     auth: {
       persistSession: false,
       autoRefreshToken: false,
@@ -76,8 +118,8 @@ async function requireActiveAdministrator(
   return supabase;
 }
 
-function configureCloudinary(env: RuntimeEnv): void {
-  cloudinary.config({
+function configureCloudinary(env: RuntimeEnv, cloudinaryClient: CloudinaryClient): void {
+  cloudinaryClient.config({
     cloud_name: requiredEnv(env, "CLOUDINARY_CLOUD_NAME"),
     api_key: requiredEnv(env, "CLOUDINARY_API_KEY"),
     api_secret: requiredEnv(env, "CLOUDINARY_API_SECRET"),
@@ -85,7 +127,12 @@ function configureCloudinary(env: RuntimeEnv): void {
   });
 }
 
-async function deleteAsset(request: Request, supabase: SupabaseClient): Promise<Response> {
+async function deleteAsset(
+  request: Request,
+  supabase: SupabaseClient,
+  cloudinaryClient: CloudinaryClient,
+  logError: (...values: unknown[]) => void,
+): Promise<Response> {
   const publicId = new URL(request.url).searchParams.get("publicId")?.trim();
   if (!publicId) throw new HttpError("publicId is required.", 400);
   if (publicId.length > 255) throw new HttpError("publicId is invalid.", 400);
@@ -114,7 +161,7 @@ async function deleteAsset(request: Request, supabase: SupabaseClient): Promise<
     );
   }
 
-  const deletion = await cloudinary.api.delete_resources([publicId], {
+  const deletion = await cloudinaryClient.api.delete_resources([publicId], {
     resource_type: "image",
     type: "upload",
     invalidate: true,
@@ -129,13 +176,18 @@ async function deleteAsset(request: Request, supabase: SupabaseClient): Promise<
     .delete()
     .eq("id", asset.id);
   if (deleteError) {
-    console.error("Cloudinary asset deleted but media row cleanup failed:", publicId, deleteError.message);
+    logError("Cloudinary asset deleted but media row cleanup failed:", publicId, deleteError.message);
     throw new HttpError("The image was removed, but cleanup is incomplete. Retry deletion to repair it.", 503);
   }
   return json({ success: true });
 }
 
-async function registerAsset(request: Request, supabase: SupabaseClient): Promise<Response> {
+async function registerAsset(
+  request: Request,
+  supabase: SupabaseClient,
+  cloudinaryClient: CloudinaryClient,
+  logError: (...values: unknown[]) => void,
+): Promise<Response> {
   let body: { publicId?: unknown };
   try {
     body = (await request.json()) as { publicId?: unknown };
@@ -147,9 +199,12 @@ async function registerAsset(request: Request, supabase: SupabaseClient): Promis
     throw new HttpError("The uploaded image ID is invalid.", 400);
   }
 
-  let resource: Awaited<ReturnType<typeof cloudinary.api.resource>>;
+  let resource: CloudinaryResource;
   try {
-    resource = await cloudinary.api.resource(publicId, { resource_type: "image", type: "upload" });
+    resource = await cloudinaryClient.api.resource(publicId, {
+      resource_type: "image",
+      type: "upload",
+    });
   } catch {
     throw new HttpError("The uploaded Cloudinary image could not be verified.", 404);
   }
@@ -168,20 +223,29 @@ async function registerAsset(request: Request, supabase: SupabaseClient): Promis
   );
   if (!error) return json({ success: true }, 201);
 
-  console.error("Media registration failed; compensating Cloudinary upload:", publicId, error.message);
+  logError("Media registration failed; compensating Cloudinary upload:", publicId, error.message);
   try {
-    await cloudinary.api.delete_resources([publicId], {
+    await cloudinaryClient.api.delete_resources([publicId], {
       resource_type: "image",
       type: "upload",
       invalidate: true,
     });
   } catch (cleanupError) {
-    console.error("Cloudinary upload compensation also failed:", publicId, cleanupError);
+    logError("Cloudinary upload compensation also failed:", publicId, cleanupError);
   }
   throw new HttpError("The image could not be registered and the upload was rolled back.", 503);
 }
 
-export function createCloudinaryAssetsHandler(env: RuntimeEnv) {
+export function createCloudinaryAssetsHandler(
+  env: RuntimeEnv,
+  dependencies: CloudinaryAssetsHandlerDependencies = {},
+) {
+  const createSupabaseClient =
+    dependencies.createSupabaseClient ?? (createClient as SupabaseFactory);
+  const cloudinaryClient =
+    dependencies.cloudinaryClient ?? (cloudinary as unknown as CloudinaryClient);
+  const logError = dependencies.logError ?? console.error;
+
   return async function handleCloudinaryAssets(request: Request): Promise<Response> {
     try {
       if (request.method !== "DELETE" && request.method !== "POST") {
@@ -192,14 +256,18 @@ export function createCloudinaryAssetsHandler(env: RuntimeEnv) {
         );
       }
 
-      const supabase = await requireActiveAdministrator(request, env);
-      configureCloudinary(env);
+      const supabase = await requireActiveAdministrator(
+        request,
+        env,
+        createSupabaseClient,
+      );
+      configureCloudinary(env, cloudinaryClient);
       return request.method === "POST"
-        ? await registerAsset(request, supabase)
-        : await deleteAsset(request, supabase);
+        ? await registerAsset(request, supabase, cloudinaryClient, logError)
+        : await deleteAsset(request, supabase, cloudinaryClient, logError);
     } catch (error) {
       if (error instanceof HttpError) return json({ error: error.message }, error.status);
-      console.error("Cloudinary media request failed:", error);
+      logError("Cloudinary media request failed:", error);
       return json({ error: "Cloudinary media service is temporarily unavailable." }, 502);
     }
   };

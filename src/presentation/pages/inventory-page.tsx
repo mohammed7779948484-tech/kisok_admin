@@ -44,6 +44,10 @@ import { PageHeader } from "@/presentation/components/page-header";
 import { ErrorState, TableSkeleton } from "@/presentation/components/states";
 import { useDebouncedValue } from "@/presentation/hooks/use-debounced-value";
 import { formatStoreDateTime } from "@/shared/date-time";
+import {
+  toSignedInventoryDelta,
+  validateInventoryAdjustment,
+} from "@/application/inventory/inventory-adjustment";
 
 const adjustmentTypes: InventoryAdjustmentType[] = [
   "stock_received",
@@ -216,8 +220,14 @@ export function InventoryPage() {
   );
 
   const submit = async () => {
-    if (!target || !Number.isSafeInteger(quantity) || quantity < 0 || !reason.trim()) {
-      toast.error("Enter a valid quantity and a reason.");
+    if (!target) return;
+    const validationError = validateInventoryAdjustment({
+      mode: tab === "set" ? "set" : "adjust",
+      quantity,
+      reason,
+    });
+    if (validationError) {
+      toast.error(validationError);
       return;
     }
     setSaving(true);
@@ -229,11 +239,7 @@ export function InventoryPage() {
           reason: reason.trim(),
         });
       } else {
-        const signedDelta =
-          type === "manual_decrease" || type === "damaged_or_expired"
-            ? -Math.abs(quantity)
-            : Math.abs(quantity);
-        if (signedDelta === 0) throw new Error("Adjustment must not be zero.");
+        const signedDelta = toSignedInventoryDelta(type, quantity);
         await rpcGateway.adjustInventory({
           flavorId: target.flavor_id,
           type,

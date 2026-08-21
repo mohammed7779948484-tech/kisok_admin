@@ -44,6 +44,7 @@ import {
 import {
   createProductForm,
   emptyFlavor,
+  shouldHydrateProductForm,
   type ProductFlavorForm,
   type ProductForm,
 } from "@/presentation/features/products/product-form-model";
@@ -159,14 +160,19 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
 
   useEffect(() => {
     const routeKey = `${mode}:${params.id ?? ""}`;
+    const shouldHydrate = shouldHydrateProductForm({
+      mode: mode === "list" ? "show" : mode,
+      routeKey,
+      hydratedRouteKey: hydratedRouteRef.current,
+      editDataReady: Boolean(current && !flavors.query.isLoading),
+    });
+    if (!shouldHydrate) return;
     if (mode === "create") {
-      if (hydratedRouteRef.current !== routeKey) {
-        setForm(createProductForm());
-        hydratedRouteRef.current = routeKey;
-      }
+      setForm(createProductForm());
+      hydratedRouteRef.current = routeKey;
       return;
     }
-    if (current && !flavors.query.isLoading && hydratedRouteRef.current !== routeKey) {
+    if (current && !flavors.query.isLoading) {
       setForm({
         name: current.name,
         brand_id: current.brand_id,
@@ -448,6 +454,15 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
       : `Edit ${current?.name ?? "product"}`;
   const editorDescription =
     "Manage product details, categories, images, and flavors in one place.";
+  const editorVisibility = getCatalogVisibility({
+    productActive: form.is_active,
+    brand: brands.result.data.find((brand) => brand.id === form.brand_id),
+    categories: categories.result.data.filter((category) =>
+      form.category_ids.includes(category.id),
+    ),
+    allCategories: categories.result.data,
+  });
+
   const editor = (
     <>
       <PageHeader
@@ -470,6 +485,19 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
           <AlertTitle>Review the required fields</AlertTitle>
           <AlertDescription>{validationMessage}</AlertDescription>
         </Alert>
+      ) : null}
+      {!loading && (mode === "create" || current) ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 px-4 py-3 text-sm">
+          <span className="font-medium">Customer visibility</span>
+          <Badge variant={editorVisibility.visible ? "secondary" : "outline"}>
+            {editorVisibility.visible ? "Visible" : "Hidden"}
+          </Badge>
+          {!editorVisibility.visible ? (
+            <span className="text-muted-foreground">
+              {editorVisibility.reasons.join(" · ")}
+            </span>
+          ) : null}
+        </div>
       ) : null}
       {!loading && (mode === "create" || current) ? (
         <Tabs className="pb-4" onValueChange={setActiveTab} value={activeTab}>

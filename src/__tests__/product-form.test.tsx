@@ -1,11 +1,15 @@
 import { useState } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import type { Category } from "@/domain/entities";
+import type { Category, Product } from "@/domain/entities";
 import { buildCategoryGroups, categoryPath } from "@/application/catalog/category-tree";
-import { createProductForm } from "@/presentation/features/products/product-form-model";
+import {
+  createProductForm,
+  shouldHydrateProductForm,
+} from "@/presentation/features/products/product-form-model";
 import { CategoryPicker } from "@/presentation/features/products/category-picker";
 import { getCatalogVisibility } from "@/application/catalog/catalog-visibility";
+import { calculateDeactivationImpact } from "@/application/catalog/deactivation-impact";
 
 const categories: Category[] = [
   {
@@ -64,6 +68,41 @@ describe("product editor state", () => {
     expect(createProductForm()).toMatchObject({ name: "", flavors: [{ name: "" }] });
   });
 
+  it("hydrates each product route once and ignores reference-data refetches", () => {
+    expect(
+      shouldHydrateProductForm({
+        mode: "create",
+        routeKey: "create:",
+        hydratedRouteKey: "create:",
+        editDataReady: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldHydrateProductForm({
+        mode: "edit",
+        routeKey: "edit:product-id",
+        hydratedRouteKey: null,
+        editDataReady: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldHydrateProductForm({
+        mode: "edit",
+        routeKey: "edit:product-id",
+        hydratedRouteKey: null,
+        editDataReady: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldHydrateProductForm({
+        mode: "edit",
+        routeKey: "edit:product-id",
+        hydratedRouteKey: "edit:product-id",
+        editDataReady: true,
+      }),
+    ).toBe(false);
+  });
+
   it("builds leaf-only hierarchical category groups and paths", () => {
     const groups = buildCategoryGroups(categories);
     expect(groups[0].parent.name).toBe("Drinks");
@@ -109,5 +148,49 @@ describe("product editor state", () => {
     expect(visibility.visible).toBe(false);
     expect(visibility.reasons).toContain("Brand “Archived Brand” is inactive");
     expect(visibility.reasons).toContain("Parent category “Drinks” is inactive");
+  });
+
+  it("counts only currently customer-visible records in deactivation impact", () => {
+    const impact = calculateDeactivationImpact({
+      targetId: "drinks",
+      kind: "categories",
+      categories,
+      products: [
+        {
+          id: "visible-product",
+          brand_id: "brand-id",
+          is_active: true,
+          product_categories: [{ category_id: "hot" }],
+        },
+        {
+          id: "already-hidden-product",
+          brand_id: "brand-id",
+          is_active: true,
+          product_categories: [{ category_id: "hot" }],
+        },
+      ] as Product[],
+      visibility: [
+        {
+          product_id: "visible-product",
+          product_visible: true,
+          hidden_reasons: [],
+          active_flavor_count: 3,
+          orderable_flavor_count: 2,
+          low_stock_flavor_count: 1,
+          total_flavor_count: 3,
+        },
+        {
+          product_id: "already-hidden-product",
+          product_visible: false,
+          hidden_reasons: ["Brand is inactive"],
+          active_flavor_count: 5,
+          orderable_flavor_count: 5,
+          low_stock_flavor_count: 0,
+          total_flavor_count: 5,
+        },
+      ],
+    });
+
+    expect(impact).toEqual({ products: 1, flavors: 3, children: 1 });
   });
 });

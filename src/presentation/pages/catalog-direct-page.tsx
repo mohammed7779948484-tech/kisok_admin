@@ -69,6 +69,8 @@ import { ActiveBadge } from "@/presentation/components/status-badge";
 import { ErrorState, TableSkeleton } from "@/presentation/components/states";
 import { CloudinaryImage } from "@/presentation/components/cloudinary-image";
 import { MediaPicker } from "@/presentation/components/media-picker";
+import { calculateDeactivationImpact } from "@/application/catalog/deactivation-impact";
+import { useCatalogVisibility } from "@/presentation/hooks/use-catalog-visibility";
 
 type CatalogRow = Brand | Category;
 type PageMode = "list" | "create" | "edit" | "show";
@@ -123,9 +125,10 @@ export function CatalogDirectPage({
     resource: "products",
     pagination: { mode: "off" },
     filters: [{ field: "is_active", operator: "eq", value: true }],
-    meta: { select: "id,brand_id,is_active,product_categories(category_id),flavors(count)" },
+    meta: { select: "id,brand_id,is_active,product_categories(category_id)" },
     queryOptions: { enabled: Boolean(deleteTarget) },
   });
+  const catalogVisibility = useCatalogVisibility({ enabled: Boolean(deleteTarget) });
 
   useEffect(() => {
     if (current) {
@@ -154,28 +157,21 @@ export function CatalogDirectPage({
   );
   const deactivationImpact = useMemo(() => {
     if (!deleteTarget) return { products: 0, flavors: 0, children: 0 };
-    const affectedCategoryIds = new Set<string>();
-    let children = 0;
-    if (isCategory) {
-      affectedCategoryIds.add(deleteTarget.id);
-      for (const category of query.result.data as Category[]) {
-        if (category.parent_id === deleteTarget.id) {
-          affectedCategoryIds.add(category.id);
-          children += 1;
-        }
-      }
-    }
-    const products = impactedProducts.result.data.filter((product) =>
-      isCategory
-        ? product.product_categories?.some((link) => affectedCategoryIds.has(link.category_id))
-        : product.brand_id === deleteTarget.id,
-    );
-    return {
-      products: products.length,
-      flavors: products.reduce((sum, product) => sum + Number(product.flavors?.[0]?.count ?? 0), 0),
-      children,
-    };
-  }, [deleteTarget, impactedProducts.result.data, isCategory, query.result.data]);
+    return calculateDeactivationImpact({
+      targetId: deleteTarget.id,
+      kind,
+      categories: isCategory ? (query.result.data as Category[]) : [],
+      products: impactedProducts.result.data,
+      visibility: catalogVisibility.data ?? [],
+    });
+  }, [
+    catalogVisibility.data,
+    deleteTarget,
+    impactedProducts.result.data,
+    isCategory,
+    kind,
+    query.result.data,
+  ]);
   const columns = useMemo<ColumnDef<CatalogRow>[]>(
     () => [
       {
@@ -498,7 +494,11 @@ export function CatalogDirectPage({
               The record is hidden from the active catalog while dependent products and historical
               data remain intact.
             </AlertDialogDescription>
-            {impactedProducts.query.isLoading ? (
+            {impactedProducts.query.error || catalogVisibility.error ? (
+              <p className="text-sm text-destructive">
+                Customer impact could not be calculated. Try again before deactivating.
+              </p>
+            ) : impactedProducts.query.isLoading || catalogVisibility.isLoading ? (
               <p className="text-sm text-muted-foreground">Calculating customer impact…</p>
             ) : (
               <div className="rounded-md border bg-muted/40 p-3 text-sm">
@@ -512,7 +512,12 @@ export function CatalogDirectPage({
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              disabled={update.mutation.isPending || impactedProducts.query.isLoading}
+              disabled={
+                update.mutation.isPending ||
+                impactedProducts.query.isLoading ||
+                catalogVisibility.isLoading ||
+                Boolean(impactedProducts.query.error || catalogVisibility.error)
+              }
               variant="destructive"
               onClick={() => {
                 if (!deleteTarget) return;

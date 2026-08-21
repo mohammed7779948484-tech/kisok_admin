@@ -22,6 +22,7 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import type { Brand, Category } from "@/domain/entities";
 import { getAvailableFlavorCount, getCatalogVisibility } from "@/application/catalog/catalog-visibility";
+import { categoryPath } from "@/application/catalog/category-tree";
 import { CloudinaryImage } from "@/presentation/components/cloudinary-image";
 import { CategoryPicker } from "@/presentation/features/products/category-picker";
 import { emptyFlavor, type ProductFlavorForm, type ProductForm } from "@/presentation/features/products/product-form-model";
@@ -466,6 +467,9 @@ export function ProductPreviewDialog({
   const brand = brands.find((item) => item.id === form.brand_id);
   const activeFlavors = form.flavors.filter((flavor) => flavor.is_active);
   const assignedCategories = categories.filter((category) => form.category_ids.includes(category.id));
+  const assignedCategoryPaths = assignedCategories.map((category) =>
+    categoryPath(category, categories),
+  );
   const visibility = getCatalogVisibility({
     productActive: form.is_active,
     brand,
@@ -507,11 +511,29 @@ export function ProductPreviewDialog({
               <p className="mt-1 text-sm">Available flavors: {availableFlavorCount} / {form.flavors.length}</p>
             </div>
             <div>
-              <p className="text-sm text-muted-foreground">{brand?.name ?? "No brand selected"}</p>
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <span className="text-sm text-muted-foreground">Brand</span>
+                <span className="text-sm font-medium">{brand?.name ?? "Not selected"}</span>
+                <Badge variant={brand?.is_active ? "secondary" : "destructive"}>
+                  {brand?.is_active ? "Active" : "Inactive or missing"}
+                </Badge>
+              </div>
               <h2 className="text-2xl font-semibold">{form.name || "New Product"}</h2>
               {form.short_description ? (
                 <p className="mt-2 text-sm text-muted-foreground">{form.short_description}</p>
               ) : null}
+            </div>
+            <div className="rounded-lg border p-3">
+              <p className="text-sm font-medium">Category assignments</p>
+              {assignedCategoryPaths.length ? (
+                <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
+                  {assignedCategoryPaths.map((path) => (
+                    <li key={path}>{path}</li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-2 text-sm text-muted-foreground">No category selected.</p>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
               {activeFlavors.map((flavor, index) => (
