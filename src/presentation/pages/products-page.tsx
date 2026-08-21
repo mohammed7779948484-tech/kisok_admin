@@ -43,6 +43,7 @@ import {
 } from "@/application/products/product-change-set";
 import {
   createProductForm,
+  canSaveProductEditor,
   emptyFlavor,
   shouldHydrateProductForm,
   type ProductFlavorForm,
@@ -65,6 +66,7 @@ import { ActiveBadge } from "@/presentation/components/status-badge";
 import { ErrorState, TableSkeleton } from "@/presentation/components/states";
 import { useUnsavedChangesWarning } from "@/presentation/hooks/use-unsaved-changes-warning";
 import { useCatalogVisibility } from "@/presentation/hooks/use-catalog-visibility";
+import { useDebouncedValue } from "@/presentation/hooks/use-debounced-value";
 
 type PageMode = "list" | "create" | "edit" | "show";
 
@@ -75,9 +77,17 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
   const invalidate = useInvalidate();
   const queryClient = useQueryClient();
   const catalogVisibility = useCatalogVisibility();
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const [reordering, setReordering] = useState(false);
+  const deferredSearch = useDebouncedValue(search.trim(), 350);
+  const pageSize = 50;
   const products = useList<Product>({
     resource: "products",
-    pagination: { mode: "off" },
+    pagination: { currentPage: page, pageSize },
+    filters: deferredSearch
+      ? [{ field: "name", operator: "contains", value: deferredSearch }]
+      : [],
     sorters: [{ field: "display_order", order: "asc" }],
     meta: {
       select: "id,name,brand_id,cover_public_id,cover_secure_url,short_description,search_keywords,display_order,is_active,created_at,updated_at,brands(id,name,is_active),product_categories(category_id,categories(id,name,parent_id,is_active)),flavors(count)",
@@ -164,7 +174,7 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
       mode: mode === "list" ? "show" : mode,
       routeKey,
       hydratedRouteKey: hydratedRouteRef.current,
-      editDataReady: Boolean(current && !flavors.query.isLoading),
+      editDataReady: Boolean(current && flavors.query.isSuccess),
     });
     if (!shouldHydrate) return;
     if (mode === "create") {
@@ -172,7 +182,7 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
       hydratedRouteRef.current = routeKey;
       return;
     }
-    if (current && !flavors.query.isLoading) {
+    if (current && flavors.query.isSuccess) {
       setForm({
         name: current.name,
         brand_id: current.brand_id,
@@ -200,7 +210,7 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
       });
       hydratedRouteRef.current = routeKey;
     }
-  }, [current, currentFlavors, flavors.query.isLoading, mode, params.id]);
+  }, [current, currentFlavors, flavors.query.isSuccess, mode, params.id]);
 
   const selectableBrands = brands.result.data.filter(
     (brand) => brand.is_active || brand.id === form.brand_id,
@@ -330,6 +340,11 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
 
   const save = async () => {
     setValidationMessage(null);
+    if (!canSaveProductEditor(mode === "list" ? "show" : mode, flavors.query.isSuccess)) {
+      setActiveTab("flavors");
+      setValidationMessage("Flavors must load successfully before this product can be saved. Retry loading first.");
+      return;
+    }
     if (
       !form.name.trim() ||
       !form.brand_id ||
@@ -346,6 +361,11 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
     if (!activeFlavors.length) {
       setActiveTab("flavors");
       setValidationMessage("Add at least one active flavor before saving.");
+      return;
+    }
+    if (form.flavors.filter((flavor) => flavor.is_featured).length > 1) {
+      setActiveTab("flavors");
+      setValidationMessage("Only one flavor can be featured for a product.");
       return;
     }
     const visibility = getCatalogVisibility({
@@ -447,6 +467,10 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
     categories.query.error ||
     catalogVisibility.error;
   const readonly = mode === "show";
+  const flavorLoadFailed =
+    mode !== "list" && mode !== "create" && flavors.query.isError;
+  const editorReady =
+    mode === "create" || Boolean(current && flavors.query.isSuccess);
   const editorTitle = readonly
     ? current?.name
     : mode === "create"
@@ -479,6 +503,16 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
       />
       {loading ? <TableSkeleton /> : null}
       {error ? <ErrorState message={toAppError(error).message} /> : null}
+      {flavorLoadFailed ? (
+        <div className="flex items-center gap-3 rounded-lg border border-destructive/40 p-4">
+          <p className="flex-1 text-sm text-destructive">
+            Flavors failed to load. Saving is disabled until a retry succeeds.
+          </p>
+          <Button onClick={() => void flavors.query.refetch()} type="button" variant="outline">
+            Retry flavors
+          </Button>
+        </div>
+      ) : null}
       {validationMessage ? (
         <Alert variant="destructive">
           <CircleAlertIcon />
@@ -486,7 +520,7 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
           <AlertDescription>{validationMessage}</AlertDescription>
         </Alert>
       ) : null}
-      {!loading && (mode === "create" || current) ? (
+      {!loading && editorReady ? (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border bg-muted/30 px-4 py-3 text-sm">
           <span className="font-medium">Customer visibility</span>
           <Badge variant={editorVisibility.visible ? "secondary" : "outline"}>
@@ -499,7 +533,7 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
           ) : null}
         </div>
       ) : null}
-      {!loading && (mode === "create" || current) ? (
+      {!loading && editorReady ? (
         <Tabs className="pb-4" onValueChange={setActiveTab} value={activeTab}>
           <div className="sticky top-14 -mx-4 mb-4 border-b bg-background/95 px-4 py-3 backdrop-blur md:-mx-6 md:px-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -525,7 +559,18 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
                   Preview
                 </Button>
                 {!readonly ? (
-                  <Button disabled={saving} onClick={save} size="sm" type="button">
+                  <Button
+                    disabled={
+                      saving ||
+                      !canSaveProductEditor(
+                        mode === "list" ? "show" : mode,
+                        flavors.query.isSuccess,
+                      )
+                    }
+                    onClick={save}
+                    size="sm"
+                    type="button"
+                  >
                     {saving ? <Spinner data-icon="inline-start" /> : null}
                     {saving ? "Saving..." : "Save Product"}
                   </Button>
@@ -617,6 +662,37 @@ export function ProductsPage({ mode = "list" }: { mode?: PageMode }) {
         <DataTable
           columns={columns}
           data={products.result.data}
+          remote={{
+            page,
+            pageSize,
+            total: products.result.total ?? 0,
+            search,
+            onPageChange: setPage,
+            onSearchChange: (value) => {
+              setSearch(value);
+              setPage(1);
+            },
+          }}
+          reorder={{
+            getId: (row) => row.id,
+            disabled: reordering,
+            onReorder: async (orderedIds) => {
+              setReordering(true);
+              try {
+                await rpcGateway.reorderCatalogItems(
+                  "products",
+                  orderedIds,
+                  (page - 1) * pageSize * 10,
+                );
+                await invalidate({ resource: "products", invalidates: ["list"] });
+                toast.success("Products reordered.");
+              } catch (error) {
+                toast.error(toAppError(error).message);
+              } finally {
+                setReordering(false);
+              }
+            },
+          }}
           searchPlaceholder="Search products..."
         />
       ) : null}

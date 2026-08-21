@@ -224,14 +224,24 @@ async function registerAsset(
   if (!error) return json({ success: true }, 201);
 
   logError("Media registration failed; compensating Cloudinary upload:", publicId, error.message);
+  let cleanupSucceeded = false;
   try {
-    await cloudinaryClient.api.delete_resources([publicId], {
+    const cleanup = await cloudinaryClient.api.delete_resources([publicId], {
       resource_type: "image",
       type: "upload",
       invalidate: true,
     });
+    const outcome = cleanup.deleted?.[publicId];
+    cleanupSucceeded = outcome === "deleted" || outcome === "not_found";
   } catch (cleanupError) {
     logError("Cloudinary upload compensation also failed:", publicId, cleanupError);
+  }
+  if (!cleanupSucceeded) {
+    logError("Cloudinary upload requires reconciliation:", publicId);
+    throw new HttpError(
+      "The image could not be registered, and Cloudinary cleanup also failed. Manual reconciliation is required.",
+      503,
+    );
   }
   throw new HttpError("The image could not be registered and the upload was rolled back.", 503);
 }

@@ -7,6 +7,7 @@ import {
 type AppRole = "admin" | "preparation" | "customer";
 type Profile = {
   id: string;
+  email?: string;
   display_name: string;
   role: AppRole;
   is_active: boolean;
@@ -23,6 +24,17 @@ const localOrigins = new Set([
 function isAllowedOrigin(origin: string | null) {
   if (!origin) return true;
   if (localOrigins.has(origin)) return true;
+  try {
+    const url = new URL(origin);
+    if (
+      url.protocol === "http:" &&
+      (url.hostname === "localhost" || url.hostname === "127.0.0.1")
+    ) {
+      return true;
+    }
+  } catch {
+    return false;
+  }
   const configured = (Deno.env.get("ADMIN_ALLOWED_ORIGINS") ?? "")
     .split(",")
     .map((value) => value.trim())
@@ -179,22 +191,45 @@ async function executeAction(
 
   if (action === "list") {
     const page = Math.max(1, Number(body.page) || 1);
-    const perPage = Math.min(200, Math.max(1, Number(body.perPage) || 50));
+    const requestedPerPage = Math.max(1, Number(body.perPage) || 50);
     const search =
       typeof body.search === "string" ? body.search.trim().toLowerCase() : "";
+    const perPage = Math.min(search ? 50 : 200, requestedPerPage);
+    if (search) {
+      const { data: rows, error: searchError } = await admin.rpc(
+        "search_admin_profiles",
+        {
+          search_term: search,
+          page_size: perPage,
+          page_offset: (page - 1) * perPage,
+        },
+      );
+      if (searchError) throw searchError;
+      const profiles = (rows ?? []) as Array<Profile & { total_count: number }>;
+      const users = await Promise.all(
+        profiles.map(async (profile) => {
+          const { data, error } = await admin.auth.admin.getUserById(profile.id);
+          if (error) throw error;
+          return toAdminUser(data.user, profile);
+        }),
+      );
+      return {
+        users,
+        page,
+        perPage,
+        total: Number(profiles[0]?.total_count ?? 0),
+      };
+    }
+
     const authUsers: AuthUser[] = [];
     let authTotal = 0;
-    let authPage = search ? 1 : page;
-    do {
-      const { data, error } = await admin.auth.admin.listUsers({
-        page: authPage,
-        perPage: search ? 200 : perPage,
-      });
-      if (error) throw error;
-      authUsers.push(...data.users);
-      authTotal = data.total;
-      authPage += 1;
-    } while (search && authUsers.length < authTotal);
+    const { data, error } = await admin.auth.admin.listUsers({
+      page,
+      perPage,
+    });
+    if (error) throw error;
+    authUsers.push(...data.users);
+    authTotal = data.total;
 
     const ids = authUsers.map((user) => user.id);
     const { data: profiles, error: profileError } = ids.length
@@ -207,23 +242,12 @@ async function executeAction(
     const profilesById = new Map(
       (profiles as Profile[]).map((profile) => [profile.id, profile]),
     );
-    const matchedUsers = authUsers
-      .map((user) => toAdminUser(user, profilesById.get(user.id)))
-      .filter((user) =>
-        search
-          ? `${user.email} ${user.displayName} ${user.role}`
-              .toLowerCase()
-              .includes(search)
-          : true,
-      );
-    const users = search
-      ? matchedUsers.slice((page - 1) * perPage, page * perPage)
-      : matchedUsers;
+    const users = authUsers.map((user) => toAdminUser(user, profilesById.get(user.id)));
     return {
       users,
       page,
       perPage,
-      total: search ? matchedUsers.length : authTotal,
+      total: authTotal,
     };
   }
 
@@ -241,6 +265,7 @@ async function executeAction(
     const userId = data.user.id;
     const { error: profileError } = await admin.from("profiles").insert({
       id: userId,
+      email: email.toLowerCase(),
       display_name: displayName,
       role,
       is_active: true,

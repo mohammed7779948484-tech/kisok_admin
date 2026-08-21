@@ -58,13 +58,20 @@ const adjustmentTypes: InventoryAdjustmentType[] = [
 
 export function InventoryPage() {
   const invalidate = useInvalidate();
+  const [inventoryPage, setInventoryPage] = useState(1);
+  const [inventorySearch, setInventorySearch] = useState("");
+  const deferredInventorySearch = useDebouncedValue(inventorySearch.trim(), 350);
+  const inventoryPageSize = 50;
   const [historyPage, setHistoryPage] = useState(1);
   const [historySearch, setHistorySearch] = useState("");
   const deferredHistorySearch = useDebouncedValue(historySearch.trim(), 350);
   const historyPageSize = 50;
   const inventory = useList<InventoryRow>({
     resource: "inventory",
-    pagination: { mode: "off" },
+    pagination: { currentPage: inventoryPage, pageSize: inventoryPageSize },
+    filters: deferredInventorySearch
+      ? [{ field: "flavors.name", operator: "contains", value: deferredInventorySearch }]
+      : [],
     sorters: [{ field: "updated_at", order: "desc" }],
     meta: {
       select: "flavor_id,current_quantity,created_at,updated_at,flavors(id,product_id,name,main_image_public_id,main_image_secure_url,display_order,is_featured,is_active,created_at,updated_at,products(id,name,is_active))",
@@ -285,7 +292,22 @@ export function InventoryPage() {
             </TabsTrigger>
           </TabsList>
           <TabsContent value="stock">
-            <DataTable columns={columns} data={inventory.result.data} />
+            <DataTable
+              columns={columns}
+              data={inventory.result.data}
+              remote={{
+                page: inventoryPage,
+                pageSize: inventoryPageSize,
+                total: inventory.result.total ?? 0,
+                search: inventorySearch,
+                onPageChange: setInventoryPage,
+                onSearchChange: (value) => {
+                  setInventorySearch(value);
+                  setInventoryPage(1);
+                },
+              }}
+              searchPlaceholder="Search flavor inventory..."
+            />
           </TabsContent>
           <TabsContent value="history">
             <DataTable

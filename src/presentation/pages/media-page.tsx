@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useInvalidate } from "@refinedev/core";
-import { CopyIcon, Trash2Icon, Loader2Icon } from "lucide-react";
+import { ChevronLeftIcon, ChevronRightIcon, CopyIcon, Trash2Icon, Loader2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,9 +11,19 @@ import { deleteCloudinaryAsset } from "@/infrastructure/cloudinary/media-gateway
 import { PageHeader } from "@/presentation/components/page-header";
 import { ErrorState, TableSkeleton } from "@/presentation/components/states";
 import { toAppError } from "@/shared/errors";
+import { Input } from "@/components/ui/input";
+import { useDebouncedValue } from "@/presentation/hooks/use-debounced-value";
 
 export function MediaPage() {
-  const { assets, error, isLoading } = useMediaAssets();
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState("");
+  const pageSize = 48;
+  const deferredSearch = useDebouncedValue(search.trim(), 300);
+  const { assets, error, isLoading, total } = useMediaAssets({
+    page,
+    pageSize,
+    search: deferredSearch,
+  });
   const invalidate = useInvalidate();
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -52,6 +62,16 @@ export function MediaPage() {
           No media yet. Upload the first image to start building the library.
         </div>
       ) : null}
+      <Input
+        aria-label="Search media"
+        className="max-w-sm"
+        onChange={(event) => {
+          setSearch(event.target.value);
+          setPage(1);
+        }}
+        placeholder="Search Cloudinary public ID..."
+        value={search}
+      />
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4 xl:grid-cols-6">
         {assets.map((asset) => (
           <div className="group overflow-hidden rounded-md border bg-card" key={asset.publicId}>
@@ -99,6 +119,18 @@ export function MediaPage() {
             </div>
           </div>
         ))}
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-muted-foreground">{total} media item(s)</p>
+        <div className="flex items-center gap-2">
+          <Button disabled={page <= 1} onClick={() => setPage((value) => value - 1)} size="icon" variant="outline">
+            <ChevronLeftIcon />
+          </Button>
+          <span className="text-sm">Page {page} of {Math.max(1, Math.ceil(total / pageSize))}</span>
+          <Button disabled={page >= Math.ceil(total / pageSize)} onClick={() => setPage((value) => value + 1)} size="icon" variant="outline">
+            <ChevronRightIcon />
+          </Button>
+        </div>
       </div>
     </>
   );

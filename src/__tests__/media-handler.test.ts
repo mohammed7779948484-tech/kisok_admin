@@ -115,6 +115,32 @@ describe("Cloudinary media failure recovery", () => {
     );
   });
 
+  it("reports reconciliation when registration and Cloudinary cleanup both fail", async () => {
+    const supabase = createSupabaseDouble({
+      upsertError: { message: "database unavailable" },
+    });
+    const cloudinary = createCloudinaryDouble();
+    cloudinary.api.delete_resources.mockRejectedValueOnce(new Error("Cloudinary unavailable"));
+    const logError = vi.fn();
+    const handler = createCloudinaryAssetsHandler(runtimeEnv, {
+      createSupabaseClient: () => supabase,
+      cloudinaryClient: cloudinary,
+      logError,
+    });
+
+    const response = await handler(request("POST"));
+
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toEqual({
+      error:
+        "The image could not be registered, and Cloudinary cleanup also failed. Manual reconciliation is required.",
+    });
+    expect(logError).toHaveBeenCalledWith(
+      "Cloudinary upload requires reconciliation:",
+      "catalog/example",
+    );
+  });
+
   it("blocks deletion while the media asset is referenced", async () => {
     const supabase = createSupabaseDouble({ usage: { products: 1 } });
     const cloudinary = createCloudinaryDouble();

@@ -5,6 +5,7 @@ import type { Category, Product } from "@/domain/entities";
 import { buildCategoryGroups, categoryPath } from "@/application/catalog/category-tree";
 import {
   createProductForm,
+  canSaveProductEditor,
   shouldHydrateProductForm,
 } from "@/presentation/features/products/product-form-model";
 import { CategoryPicker } from "@/presentation/features/products/category-picker";
@@ -101,6 +102,12 @@ describe("product editor state", () => {
         editDataReady: true,
       }),
     ).toBe(false);
+  });
+
+  it("blocks Product Edit save until flavors load successfully", () => {
+    expect(canSaveProductEditor("edit", false)).toBe(false);
+    expect(canSaveProductEditor("edit", true)).toBe(true);
+    expect(canSaveProductEditor("create", false)).toBe(true);
   });
 
   it("builds leaf-only hierarchical category groups and paths", () => {

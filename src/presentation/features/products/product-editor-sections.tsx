@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { CameraIcon, ImageIcon, PlusIcon, PowerOffIcon, Trash2Icon, XIcon } from "lucide-react";
+import { CameraIcon, GripVerticalIcon, ImageIcon, PlusIcon, PowerOffIcon, Trash2Icon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 import {
   AlertDialog,
@@ -217,6 +217,7 @@ export function FlavorsManager({
 }) {
   const [globalStock, setGlobalStock] = useState("");
   const [deactivateIndex, setDeactivateIndex] = useState<number | null>(null);
+  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
 
   const updateFlavorAt = (index: number, values: Partial<ProductFlavorForm>) => {
     onChange({
@@ -284,7 +285,40 @@ export function FlavorsManager({
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {form.flavors.map((flavor, index) => (
-          <div className="grid gap-4 rounded-lg border p-4" key={flavor.id ?? index}>
+          <div
+            className="grid gap-4 rounded-lg border p-4"
+            key={flavor.id ?? index}
+            onDragOver={(event) => {
+              if (!readonly) event.preventDefault();
+            }}
+            onDrop={(event) => {
+              event.preventDefault();
+              if (readonly || draggingIndex === null || draggingIndex === index) return;
+              const reordered = [...form.flavors];
+              const [moved] = reordered.splice(draggingIndex, 1);
+              reordered.splice(index, 0, moved);
+              onChange({
+                ...form,
+                flavors: reordered.map((item, order) => ({
+                  ...item,
+                  display_order: order * 10,
+                })),
+              });
+              setDraggingIndex(null);
+            }}
+          >
+            {!readonly ? (
+              <button
+                aria-label={`Drag ${flavor.name || "flavor"} to reorder`}
+                className="w-fit cursor-grab text-muted-foreground active:cursor-grabbing"
+                draggable
+                onDragEnd={() => setDraggingIndex(null)}
+                onDragStart={() => setDraggingIndex(index)}
+                type="button"
+              >
+                <GripVerticalIcon className="size-4" />
+              </button>
+            ) : null}
             <div className="grid gap-4 md:grid-cols-[88px_1fr_120px_96px] md:items-end">
               <Field>
                 <FieldLabel>Image</FieldLabel>
@@ -358,7 +392,16 @@ export function FlavorsManager({
                   <Switch
                     checked={flavor.is_active}
                     disabled={readonly}
-                    onCheckedChange={(checked) => updateFlavorAt(index, { is_active: checked })}
+                    onCheckedChange={(checked) => {
+                      if (!checked && flavor.id && flavor.is_active) {
+                        setDeactivateIndex(index);
+                        return;
+                      }
+                      updateFlavorAt(index, {
+                        is_active: checked,
+                        ...(checked ? {} : { is_featured: false }),
+                      });
+                    }}
                   />
                 </Field>
                 {!readonly ? (
@@ -394,11 +437,24 @@ export function FlavorsManager({
             </div>
             <div className="flex flex-wrap items-center gap-3">
               <Field className="items-center gap-2" orientation="horizontal">
-                <FieldLabel>Featured</FieldLabel>
+                <FieldLabel>Featured (one per product)</FieldLabel>
                 <Switch
                   checked={flavor.is_featured}
-                  disabled={readonly}
-                  onCheckedChange={(checked) => updateFlavorAt(index, { is_featured: checked })}
+                  disabled={readonly || !flavor.is_active}
+                  onCheckedChange={(checked) =>
+                    onChange({
+                      ...form,
+                      flavors: form.flavors.map((item, flavorIndex) => ({
+                        ...item,
+                        is_featured:
+                          flavorIndex === index
+                            ? checked
+                            : checked
+                              ? false
+                              : item.is_featured,
+                      })),
+                    })
+                  }
                 />
               </Field>
               <Field className="w-32">
@@ -436,7 +492,10 @@ export function FlavorsManager({
             <AlertDialogAction
               onClick={() => {
                 if (deactivateIndex !== null) {
-                  updateFlavorAt(deactivateIndex, { is_active: false });
+                  updateFlavorAt(deactivateIndex, {
+                    is_active: false,
+                    is_featured: false,
+                  });
                 }
                 setDeactivateIndex(null);
               }}

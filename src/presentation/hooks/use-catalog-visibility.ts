@@ -8,5 +8,9 @@ export function useCatalogVisibility({ enabled = true }: { enabled?: boolean } =
     queryFn: async () => (await rpcGateway.getAdminCatalogVisibility()) as CatalogVisibilityRow[],
     enabled,
     staleTime: 15_000,
+    refetchInterval: () =>
+      typeof document !== "undefined" && document.visibilityState === "visible"
+        ? 15_000
+        : false,
   });
 }

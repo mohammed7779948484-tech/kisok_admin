@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   useCreate,
   useInvalidate,
@@ -71,6 +71,7 @@ import { CloudinaryImage } from "@/presentation/components/cloudinary-image";
 import { MediaPicker } from "@/presentation/components/media-picker";
 import { calculateDeactivationImpact } from "@/application/catalog/deactivation-impact";
 import { useCatalogVisibility } from "@/presentation/hooks/use-catalog-visibility";
+import { useUnsavedChangesWarning } from "@/presentation/hooks/use-unsaved-changes-warning";
 
 type CatalogRow = Brand | Category;
 type PageMode = "list" | "create" | "edit" | "show";
@@ -121,6 +122,12 @@ export function CatalogDirectPage({
   const [deleteTarget, setDeleteTarget] = useState<CatalogRow | null>(null);
   const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
   const [submittingRpc, setSubmittingRpc] = useState(false);
+  const [initialForm, setInitialForm] = useState(() => JSON.stringify(emptyForm));
+  const [deactivationIntent, setDeactivationIntent] = useState<"persist" | "form">("persist");
+  const [confirmedDeactivationId, setConfirmedDeactivationId] = useState<string | null>(null);
+  const hydratedRouteRef = useRef<string | null>(null);
+  const pending =
+    create.mutation.isPending || update.mutation.isPending || submittingRpc;
   const impactedProducts = useList<Product>({
     resource: "products",
     pagination: { mode: "off" },
@@ -129,21 +136,33 @@ export function CatalogDirectPage({
     queryOptions: { enabled: Boolean(deleteTarget) },
   });
   const catalogVisibility = useCatalogVisibility({ enabled: Boolean(deleteTarget) });
+  const hasUnsavedChanges =
+    mode === "create"
+      ? JSON.stringify(form) !== JSON.stringify(emptyForm)
+      : mode === "edit" && JSON.stringify(form) !== initialForm;
+  useUnsavedChangesWarning(hasUnsavedChanges && !pending);
 
   useEffect(() => {
+    const routeKey = `${mode}:${params.id ?? ""}`;
+    if (hydratedRouteRef.current === routeKey) return;
     if (current) {
-      setForm({
+      const nextForm = {
         name: current.name,
         image_public_id: current.image_public_id ?? "",
         image_secure_url: current.image_secure_url ?? "",
         display_order: current.display_order,
         is_active: current.is_active,
         parent_id: isCategory ? ((current as Category).parent_id ?? "") : "",
-      });
+      };
+      setForm(nextForm);
+      setInitialForm(JSON.stringify(nextForm));
+      hydratedRouteRef.current = routeKey;
     } else if (mode === "create") {
       setForm(emptyForm);
+      setInitialForm(JSON.stringify(emptyForm));
+      hydratedRouteRef.current = routeKey;
     }
-  }, [current, isCategory, mode]);
+  }, [current, isCategory, mode, params.id]);
 
   const roots = useMemo(
     () =>
@@ -250,7 +269,10 @@ export function CatalogDirectPage({
                 ) : (
                   <DropdownMenuItem
                     variant="destructive"
-                    onClick={() => setDeleteTarget(row.original)}
+                    onClick={() => {
+                      setDeactivationIntent("persist");
+                      setDeleteTarget(row.original);
+                    }}
                   >
                     <Trash2Icon />
                     Deactivate
@@ -267,6 +289,15 @@ export function CatalogDirectPage({
 
   const closeSheet = () => navigate(`/${kind}`);
   const save = async () => {
+    if (
+      current?.is_active &&
+      !form.is_active &&
+      confirmedDeactivationId !== current.id
+    ) {
+      setDeactivationIntent("form");
+      setDeleteTarget(current);
+      return;
+    }
     const imageUrl = form.image_secure_url.trim();
     if (!Number.isSafeInteger(form.display_order) || form.display_order < 0) {
       toast.error("Display order must be a nonnegative whole number.");
@@ -321,9 +352,6 @@ export function CatalogDirectPage({
     }
   };
 
-  const pending =
-    create.mutation.isPending || update.mutation.isPending || submittingRpc;
-
   return (
     <>
       <PageHeader
@@ -348,6 +376,22 @@ export function CatalogDirectPage({
         <DataTable
           columns={columns}
           data={query.result.data}
+          reorder={{
+            getId: (row) => row.id,
+            disabled: submittingRpc,
+            onReorder: async (orderedIds) => {
+              setSubmittingRpc(true);
+              try {
+                await rpcGateway.reorderCatalogItems(kind, orderedIds);
+                await invalidate({ resource: kind, invalidates: ["list"] });
+                toast.success(`${title} reordered.`);
+              } catch (error) {
+                toast.error(toAppError(error).message);
+              } finally {
+                setSubmittingRpc(false);
+              }
+            },
+          }}
           searchPlaceholder={`Search ${kind}...`}
         />
       ) : null}
@@ -463,7 +507,15 @@ export function CatalogDirectPage({
                   checked={form.is_active}
                   disabled={mode === "show"}
                   id={`${kind}-active`}
-                  onCheckedChange={(checked) => setForm({ ...form, is_active: checked })}
+                  onCheckedChange={(checked) => {
+                    if (!checked && current?.is_active) {
+                      setDeactivationIntent("form");
+                      setDeleteTarget(current);
+                      return;
+                    }
+                    if (checked) setConfirmedDeactivationId(null);
+                    setForm({ ...form, is_active: checked });
+                  }}
                 />
               </Field>
             </FieldGroup>
@@ -521,6 +573,12 @@ export function CatalogDirectPage({
               variant="destructive"
               onClick={() => {
                 if (!deleteTarget) return;
+                if (deactivationIntent === "form") {
+                  setForm((previous) => ({ ...previous, is_active: false }));
+                  setConfirmedDeactivationId(deleteTarget.id);
+                  setDeleteTarget(null);
+                  return;
+                }
                 update.mutate(
                   {
                     resource: kind,

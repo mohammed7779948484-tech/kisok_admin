@@ -65,3 +65,10 @@ export function shouldHydrateProductForm({
   if (hydratedRouteKey === routeKey) return false;
   return mode === "create" || editDataReady;
 }
+
+export function canSaveProductEditor(
+  mode: "create" | "edit" | "show",
+  flavorsLoadedSuccessfully: boolean,
+) {
+  return mode !== "edit" || flavorsLoadedSuccessfully;
+}
